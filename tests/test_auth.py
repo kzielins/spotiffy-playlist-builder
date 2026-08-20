@@ -2,6 +2,8 @@
 
 from src.auth import (
     DictCacheHandler,
+    PendingAuth,
+    PendingAuthStore,
     new_oauth_state,
     normalize_web_redirect_uri,
     parse_redirect_params,
@@ -65,3 +67,47 @@ def test_resolve_ignores_loopback_env_on_cloud(monkeypatch) -> None:
         resolve_web_redirect_uri("https://spotifyplaylist.streamlit.app")
         == "https://spotifyplaylist.streamlit.app/"
     )
+
+
+def _pending(state: str = "s1", created_at: float | None = None) -> PendingAuth:
+    kwargs: dict = {
+        "state": state,
+        "verifier": "verifier",
+        "challenge": "challenge",
+        "redirect_uri": "http://127.0.0.1:8501/",
+    }
+    if created_at is not None:
+        kwargs["created_at"] = created_at
+    return PendingAuth(**kwargs)
+
+
+def test_pending_store_register_and_consume() -> None:
+    store = PendingAuthStore({})
+    store.register(_pending("s1"))
+    got = store.consume("s1")
+    assert got is not None
+    assert got.verifier == "verifier"
+    assert got.redirect_uri == "http://127.0.0.1:8501/"
+
+
+def test_pending_store_consume_is_single_use() -> None:
+    store = PendingAuthStore({})
+    store.register(_pending("s1"))
+    assert store.consume("s1") is not None
+    assert store.consume("s1") is None
+
+
+def test_pending_store_unknown_state() -> None:
+    store = PendingAuthStore({})
+    store.register(_pending("s1"))
+    assert store.consume("missing") is None
+    assert store.consume("") is None
+    assert store.consume("s1") is not None
+
+
+def test_pending_store_expired_ttl() -> None:
+    store = PendingAuthStore({}, ttl=10.0)
+    store.register(_pending("old", created_at=0.0))
+    store.register(_pending("fresh"))
+    assert store.consume("old") is None
+    assert store.consume("fresh") is not None

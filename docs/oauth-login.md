@@ -13,9 +13,11 @@ Spotiffy uses **Authorization Code with PKCE** (`SpotifyPKCE`). There is no Clie
    Query string includes `?code=` and `state`. The Sign-in page shows the exact redirect URI being sent.
 4. The app exchanges the code plus a PKCE verifier for an access token and a refresh token.
    - CLI stores them in `.cache-spotiffy` (gitignored).
-   - Streamlit stores them only in **that browser session**, so two users on the same server cannot share a login.
+   - Streamlit stores them only in **that browser session**, so two users on the same server cannot share a login. Refreshing the page (F5) starts a new session and you must sign in again.
 
 Later CLI runs reuse the cache until you revoke access or delete the file. Streamlit asks again in a new session.
+
+The Streamlit **Sign in with Spotify** link is **single-use** and expires after a few minutes. Do not bookmark it. If you see that the link expired or was already used, click Sign in again on the app page.
 
 ## Who is who in this flow
 
@@ -43,8 +45,8 @@ playlist-modify-private playlist-modify-public
 ## Common errors
 
 - **Redirect URI mismatch / `Not matching configuration`** — Spotify compares the `redirect_uri` query parameter to the Dashboard list **exactly** (scheme, host, port, path, trailing slash). Local Streamlit uses `http://127.0.0.1:8501/`; [spotifyplaylist.streamlit.app](https://spotifyplaylist.streamlit.app) uses `https://spotifyplaylist.streamlit.app/`. Both must be listed. CLI stays `http://127.0.0.1:8888/callback`. Do not set `SPOTIFY_WEB_REDIRECT_URI` to localhost in Streamlit Cloud secrets.
-- **OAuth state mismatch** — start sign-in again from the same Streamlit session; do not mix two tabs from different logins.
-- **PKCE verifier missing** — Streamlit must generate the consent link and receive the redirect in the same browser session.
+- **Sign-in link expired or was already used** — Streamlit cannot keep OAuth `state` across Spotify's redirect in `session_state`. The handshake lives in process memory for a few minutes and is consumed once. Click **Sign in with Spotify** again; do not reuse an old tab or bookmark.
+- **PKCE verifier missing** — start sign-in from the app so a fresh consent URL is generated; do not paste an old authorize URL.
 - **Browser does not open (CLI)** — run the CLI in a real terminal so Spotipy can start the local callback server on port 8888.
 
 ## 403 Forbidden
@@ -58,7 +60,7 @@ Failed calls log HTTP status, API code, `reason`, and message. Streamlit shows t
 
 ## Signing in from Streamlit
 
-Click **Sign in with Spotify**. After you approve access, Spotify sends you back to the app with `?code=`; login finishes automatically. Use **Log out** in the sidebar to drop the session token.
+Click **Sign in with Spotify**. After you approve access, Spotify sends you back to the app with `?code=`; login finishes automatically. The link is single-use and short-lived. After a page refresh you must sign in again because the token lives only in the browser session. Use **Log out** in the sidebar to drop it.
 
 ## Sign out (CLI)
 
