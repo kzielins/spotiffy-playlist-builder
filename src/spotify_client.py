@@ -203,19 +203,33 @@ class SpotifyClient:
     def auth_status(self) -> dict[str, object]:
         """Report the signed-in account and granted scopes (never the token)."""
         granted = self.granted_scopes()
+        cached = self.has_cached_token()
         status: dict[str, object] = {
             "redirect_uri": self._redirect_uri,
             "token_cache": self._cache_path,
-            "cached_token": self.has_cached_token(),
+            "cached_token": cached,
+            "connected": False,
             "granted_scopes": granted,
             "missing_scopes": sorted(set(SCOPES.split()) - set(granted)),
+            "user_id": "",
+            "display_name": "",
+            "product": "unknown",
+            "country": "unknown",
         }
+        if not cached:
+            return status
         try:
             me = self._sp.current_user() or {}
         except SpotifyException as exc:
             details = describe_spotify_error(exc, action="GET /v1/me")
             logger.error("Spotify auth check failed\n%s", details)
             raise SpotifyApiError("Spotify authentication failed", details) from exc
+        except EOFError as exc:
+            raise RuntimeError(
+                "Spotify asked for interactive consent, which is not possible here. "
+                "Sign in again from the app or run `python main.py --check-auth`."
+            ) from exc
+        status["connected"] = True
         status["user_id"] = str(me.get("id") or "")
         status["display_name"] = str(me.get("display_name") or "")
         status["product"] = str(me.get("product") or "unknown")

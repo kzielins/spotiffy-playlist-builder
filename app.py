@@ -68,13 +68,16 @@ def render_sidebar() -> None:
             except RuntimeError as exc:
                 show_error(str(exc))
             else:
-                st.write(f"User: `{status['user_id']}`")
-                st.write(f"Scopes: `{' '.join(status['granted_scopes']) or '-'}`")
-                missing = status["missing_scopes"]
-                if missing:
-                    st.error(f"Missing scopes: {' '.join(missing)}")
+                if not status["connected"]:
+                    st.warning("Not connected. Press 'Create playlist' to sign in.")
                 else:
-                    st.success("Playlist scopes granted.")
+                    st.write(f"User: `{status['user_id']}`")
+                    st.write(f"Scopes: `{' '.join(status['granted_scopes']) or '-'}`")
+                    missing = status["missing_scopes"]
+                    if missing:
+                        st.error(f"Missing scopes: {' '.join(missing)}")
+                    else:
+                        st.success("Playlist scopes granted.")
         if st.button("Re-authenticate"):
             try:
                 removed = SpotifyClient(open_browser=False).sign_out()
@@ -159,7 +162,7 @@ def main() -> None:
                     }
                     for m in report.matched
                 ],
-                use_container_width=True,
+                width="stretch",
             )
         else:
             st.write("No confident matches.")
@@ -167,7 +170,7 @@ def main() -> None:
         if report.skipped:
             st.dataframe(
                 [{"line": s.query, "reason": s.reason} for s in report.skipped],
-                use_container_width=True,
+                width="stretch",
             )
         else:
             st.write("Nothing skipped.")

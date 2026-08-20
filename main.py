@@ -83,6 +83,11 @@ def print_auth_status() -> int:
     except RuntimeError as exc:
         print(f"Auth check failed: {exc}")
         return 1
+    if not status["connected"]:
+        print(f"Not connected. No cached token in {status['token_cache']}.")
+        print(f"Redirect URI:    {status['redirect_uri']}")
+        print("Run any search command to open the Spotify consent screen.")
+        return 1
     print(f"Spotify user:    {status['user_id']} ({status['display_name']})")
     print(f"Account type:    {status['product']} / {status['country']}")
     print(f"Redirect URI:    {status['redirect_uri']}")
