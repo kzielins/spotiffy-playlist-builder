@@ -105,6 +105,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _cli_progress(index: int, total: int, query: str, note: str) -> None:
+    extra = f" — {note}" if note else ""
+    print(f"Searching {index}/{total}: {query}{extra}", file=sys.stderr)
+
+
 def visibility_flag(args: argparse.Namespace) -> bool | None:
     if args.public:
         return True
@@ -204,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
             description=args.description,
             mode=mode,
             playlist_id=args.playlist_id,
+            on_progress=_cli_progress,
         )
     except SpotifyApiError as exc:
         logging.error("%s\n%s", exc, exc.details)

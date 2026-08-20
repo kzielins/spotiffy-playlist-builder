@@ -21,6 +21,7 @@ Users sign in with Spotify in the browser. **No Client Secret and no hand-made t
 - [Tutorial](docs/tutorial.md)
 - [Create a Spotify app and tokens](docs/spotify-app-and-tokens.md)
 - [OAuth login](docs/oauth-login.md)
+- [Spotify rate limits and quota](docs/spotify-rate-limits.md)
 - [GitHub PAT (publishing only)](docs/github.md)
 - [Authors](AUTHORS.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 

@@ -6,7 +6,8 @@ import logging
 import re
 import time
 from difflib import SequenceMatcher
-from typing import Iterable, Literal
+from collections.abc import Callable, Iterable
+from typing import Literal
 
 from pydantic import BaseModel, Field
 from spotipy import Spotify, SpotifyException
@@ -31,6 +32,11 @@ logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 100
 NAME_MAX_LEN = 100
+SEARCH_PACE_S = 0.12
+SHORT_RETRY_CAP_S = 15
+EARLY_STOP_SCORE = 0.8
+ProgressFn = Callable[[int, int, str, str], None]
+WaitFn = Callable[[str], None]
 PAREN_RE = re.compile(r"\([^)]*\)|\[[^\]]*\]")
 EXTRA_RE = re.compile(
     r"\b(feat\.?|ft\.?|featuring|remix|official|video|audio|lyrics?|hd|4k)\b",
@@ -95,10 +101,48 @@ def describe_spotify_error(exc: SpotifyException, *, action: str) -> str:
         lines.append(
             "hint: 403 usually means this Spotify account is not on the app "
             "allowlist (Development Mode, max 5 users) or the token is missing "
-            "playlist-modify-* scopes. The owner must add your Spotify e-mail "
-            "under Dashboard → User Management. See docs/oauth-login.md."
+            "playlist-read-private / playlist-modify-* scopes. Sign out and "
+            "sign in again, or ask the owner to add your Spotify e-mail under "
+            "Dashboard → User Management. See docs/oauth-login.md."
+        )
+    if exc.http_status == 429:
+        lines.append(
+            "hint: 429 is a rate limit or Development Mode quota. Short "
+            "Retry-After means slow down; hours-long Retry-After means wait "
+            "until that window ends. See docs/spotify-rate-limits.md."
         )
     return "\n".join(lines)
+
+
+def retry_after_seconds(exc: SpotifyException) -> int:
+    headers = exc.headers or {}
+    raw = headers.get("Retry-After") or headers.get("retry-after")
+    try:
+        return max(1, int(float(raw)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def format_retry_wait(seconds: int) -> str:
+    if seconds >= 3600:
+        hours = max(1, round(seconds / 3600))
+        unit = "hour" if hours == 1 else "hours"
+        return f"about {hours} {unit}"
+    if seconds >= 60:
+        minutes = max(1, round(seconds / 60))
+        unit = "minute" if minutes == 1 else "minutes"
+        return f"about {minutes} {unit}"
+    return f"{seconds} seconds"
+
+
+def quota_exhausted_error(exc: SpotifyException, *, action: str) -> SpotifyApiError:
+    wait = format_retry_wait(retry_after_seconds(exc))
+    details = describe_spotify_error(exc, action=action)
+    return SpotifyApiError(
+        f"Spotify request quota is exhausted. Try again in {wait}. "
+        "See docs/spotify-rate-limits.md.",
+        details,
+    )
 
 
 def clamp_playlist_name(name: str) -> str:
@@ -150,6 +194,7 @@ class SpotifyClient:
         state: str | None = None,
         use_web_redirect: bool = False,
         auth: SpotifyPKCE | None = None,
+        search_pace_s: float = SEARCH_PACE_S,
     ) -> None:
         if auth is not None:
             self._auth = auth
@@ -166,7 +211,9 @@ class SpotifyClient:
             )
         self._redirect_uri = self._auth.redirect_uri
         self._cache_path = cache_path
-        self._sp = Spotify(auth_manager=self._auth)
+        self._search_pace_s = search_pace_s
+        self._last_search_at = 0.0
+        self._sp = Spotify(auth_manager=self._auth, retries=0)
 
     def authorize_url(self, state: str | None = None) -> str:
         """Consent URL. Store code_verifier before the user leaves the page."""
@@ -274,9 +321,19 @@ class SpotifyClient:
             raise RuntimeError("Spotify returned an empty user id")
         return user_id
 
-    def _search(self, q: str) -> list[dict]:
+    def _pace_search(self) -> None:
+        if self._search_pace_s <= 0:
+            return
+        if self._last_search_at:
+            wait = self._search_pace_s - (time.monotonic() - self._last_search_at)
+            if wait > 0:
+                time.sleep(wait)
+        self._last_search_at = time.monotonic()
+
+    def _search(self, q: str, *, on_wait: WaitFn | None = None) -> list[dict]:
         if not q.strip():
             return []
+        self._pace_search()
         try:
             result = self._sp.search(q=q, type="track", limit=5)
         except SpotifyException as exc:
@@ -285,41 +342,54 @@ class SpotifyClient:
                 q,
                 describe_spotify_error(exc, action="GET /v1/search"),
             )
-            if exc.http_status == 429:
-                retry = int(exc.headers.get("Retry-After", 1)) if exc.headers else 1
-                time.sleep(min(retry, 5))
-                try:
-                    result = self._sp.search(q=q, type="track", limit=5)
-                except SpotifyException as retry_exc:
-                    logger.warning(
-                        "Retry failed for %r\n%s",
-                        q,
-                        describe_spotify_error(retry_exc, action="GET /v1/search retry"),
-                    )
-                    return []
-            else:
+            if exc.http_status != 429:
+                return []
+            wait = retry_after_seconds(exc)
+            if wait > SHORT_RETRY_CAP_S:
+                raise quota_exhausted_error(exc, action="GET /v1/search") from exc
+            if on_wait:
+                on_wait(f"Waiting {wait}s (Spotify rate limit)")
+            time.sleep(wait)
+            self._pace_search()
+            try:
+                result = self._sp.search(q=q, type="track", limit=5)
+            except SpotifyException as retry_exc:
+                logger.warning(
+                    "Retry failed for %r\n%s",
+                    q,
+                    describe_spotify_error(retry_exc, action="GET /v1/search retry"),
+                )
+                if retry_exc.http_status == 429:
+                    raise quota_exhausted_error(
+                        retry_exc, action="GET /v1/search retry"
+                    ) from retry_exc
                 return []
         tracks = (result or {}).get("tracks") or {}
         return list(tracks.get("items") or [])
 
-    def best_match(self, line: LineQuery, min_score: float) -> MatchedTrack | None:
-        """Try structured then free-text queries; keep the highest scoring track."""
+    def best_match(
+        self,
+        line: LineQuery,
+        min_score: float,
+        *,
+        on_wait: WaitFn | None = None,
+    ) -> MatchedTrack | None:
+        """Try at most two queries; stop early on a strong match."""
         attempts: list[str] = []
         if line.kind == "artist_title" and line.artist and line.title:
             attempts.append(f"artist:{line.artist} track:{line.title}")
-        simplified = simplify_query(line.query)
-        if simplified:
-            attempts.append(simplified)
-        if line.title:
-            attempts.append(simplify_query(line.title) or line.title)
-        if line.query not in attempts:
+        else:
             attempts.append(line.query)
+        simplified = simplify_query(line.query)
+        if simplified and simplified not in attempts:
+            attempts.append(simplified)
+        attempts = attempts[:2]
 
         best_item: dict | None = None
         best_score = 0.0
         seen_uri: set[str] = set()
         for attempt in attempts:
-            for item in self._search(attempt):
+            for item in self._search(attempt, on_wait=on_wait):
                 uri = str(item.get("uri") or "")
                 if not uri or uri in seen_uri:
                     continue
@@ -328,6 +398,8 @@ class SpotifyClient:
                 if score > best_score:
                     best_score = score
                     best_item = item
+            if best_score >= EARLY_STOP_SCORE:
+                break
 
         if best_item is None:
             return None
@@ -351,13 +423,30 @@ class SpotifyClient:
         )
 
     def match_lines(
-        self, lines: Iterable[LineQuery], min_score: float
+        self,
+        lines: Iterable[LineQuery],
+        min_score: float,
+        *,
+        on_progress: ProgressFn | None = None,
     ) -> tuple[list[MatchedTrack], list[SkippedLine]]:
         matched: list[MatchedTrack] = []
         skipped: list[SkippedLine] = []
         seen_uris: set[str] = set()
-        for line in lines:
-            hit = self.best_match(line, min_score=min_score)
+        queries = list(lines)
+        total = len(queries)
+
+        def wait_note(note: str, index: int, query: str) -> None:
+            if on_progress:
+                on_progress(index, total, query, note)
+
+        for index, line in enumerate(queries, start=1):
+            if on_progress:
+                on_progress(index, total, line.query, "")
+            hit = self.best_match(
+                line,
+                min_score=min_score,
+                on_wait=lambda note, i=index, q=line.query: wait_note(note, i, q),
+            )
             if hit is None:
                 skipped.append(SkippedLine(query=line.query, reason="no_confident_match"))
                 continue
@@ -383,6 +472,10 @@ class SpotifyClient:
             try:
                 page = self._sp.current_user_playlists(limit=50, offset=offset) or {}
             except SpotifyException as exc:
+                if exc.http_status == 429 and retry_after_seconds(exc) > SHORT_RETRY_CAP_S:
+                    raise quota_exhausted_error(
+                        exc, action="GET /v1/me/playlists"
+                    ) from exc
                 details = describe_spotify_error(exc, action="GET /v1/me/playlists")
                 raise SpotifyApiError("Could not list playlists", details) from exc
             items = page.get("items") or []

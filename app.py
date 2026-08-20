@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.auth import (
+    SCOPES,
     DictCacheHandler,
     PendingAuth,
     PendingAuthStore,
@@ -135,6 +136,14 @@ def render_sidebar(client: SpotifyClient) -> None:
                 missing = status["missing_scopes"]
                 if missing:
                     st.error(f"Missing scopes: {' '.join(missing)}")
+                    st.caption(
+                        "Log out and sign in again so Spotify can grant "
+                        "playlist-read-private (needed to list playlists)."
+                    )
+                    if st.button("Sign in again for playlist access"):
+                        client.sign_out()
+                        st.session_state.pop("owned_playlists", None)
+                        st.rerun()
                 else:
                     st.success("Playlist scopes granted.")
             else:
@@ -143,6 +152,7 @@ def render_sidebar(client: SpotifyClient) -> None:
             st.info("Not signed in.")
         if st.button("Log out"):
             client.sign_out()
+            st.session_state.pop("owned_playlists", None)
             st.rerun()
 
 
@@ -210,8 +220,19 @@ def main() -> None:
     mode: PlaylistMode = "create"
     playlist_id: str | None = None
     if target == "Edit existing playlist":
+        if "playlist-read-private" in set(SCOPES.split()) - set(client.granted_scopes()):
+            st.error(
+                "This session cannot list playlists (missing playlist-read-private). "
+                "Use **Sign in again for playlist access** in the sidebar."
+            )
+            return
+        refresh = st.button("Refresh playlist list")
+        if refresh:
+            st.session_state.pop("owned_playlists", None)
         try:
-            owned = client.list_own_playlists()
+            if "owned_playlists" not in st.session_state:
+                st.session_state.owned_playlists = client.list_own_playlists()
+            owned = st.session_state.owned_playlists
         except SpotifyApiError as exc:
             show_error(str(exc), exc.details)
             return
@@ -258,25 +279,38 @@ def main() -> None:
             )
             if not name.strip() and mode == "create":
                 st.caption(f"Suggested playlist name: {suggested}")
-        with st.spinner("Talking to Spotify…"):
-            try:
-                _, report = run_pipeline(
-                    source,
-                    name=name.strip() or None,
-                    min_score=min_score,
-                    dry_run=dry_run,
-                    public=public,
-                    description=playlist_description.strip() or None,
-                    mode=mode,
-                    playlist_id=playlist_id,
-                    client=client,
-                )
-            except SpotifyApiError as exc:
-                show_error(str(exc), exc.details)
-                return
-            except RuntimeError as exc:
-                show_error(str(exc))
-                return
+        progress = st.progress(0.0)
+        status_box = st.empty()
+
+        def on_progress(index: int, total: int, query: str, note: str) -> None:
+            fraction = index / total if total else 1.0
+            progress.progress(min(fraction, 1.0))
+            label = f"Searching {index}/{total}: {query}"
+            if note:
+                label += f" — {note}"
+            status_box.caption(label)
+
+        try:
+            _, report = run_pipeline(
+                source,
+                name=name.strip() or None,
+                min_score=min_score,
+                dry_run=dry_run,
+                public=public,
+                description=playlist_description.strip() or None,
+                mode=mode,
+                playlist_id=playlist_id,
+                client=client,
+                on_progress=on_progress,
+            )
+        except SpotifyApiError as exc:
+            show_error(str(exc), exc.details)
+            return
+        except RuntimeError as exc:
+            show_error(str(exc))
+            return
+        progress.progress(1.0)
+        status_box.caption("Done.")
         report_tables(report)
 
 

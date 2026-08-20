@@ -7,7 +7,7 @@ The **project owner** registers one Spotify app. Its public Client ID is built i
 ## End users
 
 1. Open the Streamlit app or run the CLI.
-2. Approve **playlist-modify-public** and **playlist-modify-private** on the Spotify consent page.
+2. Approve **playlist-modify-public**, **playlist-modify-private**, and **playlist-read-private** on the Spotify consent page.
 3. After redirect, the app stores a user access token (CLI: `.cache-spotiffy`; Streamlit: that browser session only).
 
 You never paste a Client Secret. Search, playlist create, and playlist edit all use the token Spotify issues after that consent.
@@ -42,5 +42,8 @@ Do **not** put a Client Secret in `.env`. PKCE does not use it. On Streamlit Clo
 
 - `playlist-modify-public` — create and edit public playlists
 - `playlist-modify-private` — create and edit private playlists
+- `playlist-read-private` — list playlists you own (`GET /v1/me/playlists`)
 
-Those scopes also cover searching the catalog while a user is signed in. No other scopes are required.
+Those scopes also cover searching the catalog while a user is signed in. After a scope change, existing tokens must be replaced (Log out, then Sign in).
+
+Rate limits and how to request Extended Quota Mode: [docs/spotify-rate-limits.md](spotify-rate-limits.md).

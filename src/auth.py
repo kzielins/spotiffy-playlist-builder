@@ -17,7 +17,7 @@ from spotipy.oauth2 import SpotifyPKCE
 
 logger = logging.getLogger(__name__)
 
-SCOPES = "playlist-modify-public playlist-modify-private"
+SCOPES = "playlist-modify-public playlist-modify-private playlist-read-private"
 CACHE_PATH = ".cache-spotiffy"
 CLI_REDIRECT_URI = "http://127.0.0.1:8888/callback"
 WEB_REDIRECT_URI = "http://127.0.0.1:8501/"
