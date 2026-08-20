@@ -7,18 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- OAuth Authorization Code with PKCE so end users sign in with Spotify in the browser and never need a Client Secret or a hand-made token.
+- Streamlit stores tokens only in the current browser session; CLI still uses `.cache-spotiffy`.
+- Playlist editor: list owned playlists, append, replace, remove matched tracks, and update name/description/visibility (`--mode`, `--playlist-id`, `--list-playlists`, Streamlit **Edit existing playlist**).
+
+### Changed
+
+- Replaced `SpotifyOAuth` (client secret) with `SpotifyPKCE`. `SPOTIFY_CLIENT_SECRET` is no longer used.
+- Streamlit completes login from the Spotify redirect (`?code=`) instead of asking users to paste a URL.
+
 ### Fixed
 
 - Playlists are created through `POST /v1/me/playlists` instead of `POST /v1/users/{id}/playlists`, which returned 403 Forbidden even with valid `playlist-modify-*` scopes.
 - Suggested playlist names are collapsed to a single line and clamped to Spotify's 100-character limit.
 - Promotional description lines (`Track list:`, `Stream/Download`, arrow and emoji decorations, contact handles) are filtered out before searching, instead of being rejected later by the score threshold.
+- Clearing the token cache and then checking the connection no longer crashes Streamlit.
 
-### Added
+### Added (debugging)
 
-- `--check-auth` reports the connected account, granted scopes, redirect URI, and token cache; `--relogin` clears the cached token.
-- `--public` creates a public playlist (private stays the default).
+- `--check-auth` reports the connected account, granted scopes, redirect URI, and token cache; `--relogin` clears the cached CLI token.
+- `--public` / `--private` set playlist visibility (create default: private).
 - Failed Spotify calls log the full server response — HTTP status, API code, `reason`, and message — and Streamlit shows the same dump under *Spotify error details*.
-- Streamlit sign-in without a server-side browser: consent link plus a redirect-URL paste field, with **Check connection** and **Re-authenticate** in the sidebar.
 
 ## [0.1.0] - 2026-08-20
 

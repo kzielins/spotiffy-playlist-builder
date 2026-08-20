@@ -13,14 +13,20 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.pipeline import load_source, run_pipeline
-from src.spotify_client import SpotifyApiError, SpotifyClient, clear_cached_token
+from src.spotify_client import (
+    PlaylistMode,
+    SpotifyApiError,
+    SpotifyClient,
+    clear_cached_token,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Search Spotify for the best matching track on each line of a "
-            "YouTube description or any pasted text, then create a playlist."
+            "YouTube description or any pasted text, then create or edit a playlist. "
+            "Sign in with Spotify in the browser; no Client Secret is required."
         )
     )
     source = parser.add_mutually_exclusive_group(required=False)
@@ -38,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Playlist name (optional; a title is suggested when omitted)",
     )
     parser.add_argument(
+        "--description",
+        default=None,
+        help="Playlist description (create/update)",
+    )
+    parser.add_argument(
         "--min-score",
         type=float,
         default=0.45,
@@ -46,12 +57,34 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print matches only; do not create a playlist",
+        help="Print matches only; do not create or edit a playlist",
     )
-    parser.add_argument(
+    visibility = parser.add_mutually_exclusive_group()
+    visibility.add_argument(
         "--public",
         action="store_true",
-        help="Create a public playlist (default: private)",
+        help="Make the playlist public (create default: private)",
+    )
+    visibility.add_argument(
+        "--private",
+        action="store_true",
+        help="Make the playlist private",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["create", "append", "replace", "remove", "update"],
+        default="create",
+        help="create (default), append, replace, remove, or update details",
+    )
+    parser.add_argument(
+        "--playlist-id",
+        default=None,
+        help="Existing playlist id (required except for --mode create)",
+    )
+    parser.add_argument(
+        "--list-playlists",
+        action="store_true",
+        help="List playlists you own, then exit",
     )
     parser.add_argument(
         "--check-auth",
@@ -70,6 +103,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Debug logging",
     )
     return parser
+
+
+def visibility_flag(args: argparse.Namespace) -> bool | None:
+    if args.public:
+        return True
+    if args.private:
+        return False
+    if args.mode == "create":
+        return False
+    return None
 
 
 def print_auth_status() -> int:
@@ -96,9 +139,29 @@ def print_auth_status() -> int:
     missing = status["missing_scopes"]
     if missing:
         print(f"MISSING scopes:  {' '.join(missing)}")
-        print("Run `python main.py --relogin --dry-run --text x` to re-consent.")
+        print("Run `python main.py --relogin --check-auth` to re-consent.")
     else:
         print("All required playlist scopes are granted.")
+    return 0
+
+
+def print_playlists() -> int:
+    try:
+        playlists = SpotifyClient().list_own_playlists()
+    except SpotifyApiError as exc:
+        print(f"Could not list playlists: {exc}")
+        print(exc.details)
+        return 1
+    except RuntimeError as exc:
+        print(f"Could not list playlists: {exc}")
+        return 1
+    if not playlists:
+        print("No owned playlists.")
+        return 0
+    print(f"{'ID':<24}  {'tracks':>6}  {'vis':<8}  name")
+    for item in playlists:
+        vis = "public" if item.public else "private"
+        print(f"{item.id:<24}  {item.track_count:>6}  {vis:<8}  {item.name}")
     return 0
 
 
@@ -114,23 +177,33 @@ def main(argv: list[str] | None = None) -> int:
         print("Cached token removed." if removed else "No cached token found.")
     if args.check_auth:
         return print_auth_status()
-    if not (args.url or args.text or args.file or args.stdin):
+    if args.list_playlists:
+        return print_playlists()
+    mode: PlaylistMode = args.mode
+    if mode != "update" and not (args.url or args.text or args.file or args.stdin):
         parser.error("one of --url, --text, --file, --stdin is required")
+    if mode != "create" and not args.playlist_id:
+        parser.error("--playlist-id is required unless --mode create")
 
     stdin_text = sys.stdin.read() if args.stdin else None
     try:
-        source = load_source(
-            text=args.text,
-            file_path=args.file,
-            url=args.url,
-            stdin_text=stdin_text,
-        )
+        source = None
+        if args.url or args.text or args.file or args.stdin:
+            source = load_source(
+                text=args.text,
+                file_path=args.file,
+                url=args.url,
+                stdin_text=stdin_text,
+            )
         _, report = run_pipeline(
             source,
             name=args.name,
             min_score=args.min_score,
             dry_run=args.dry_run,
-            public=args.public,
+            public=visibility_flag(args),
+            description=args.description,
+            mode=mode,
+            playlist_id=args.playlist_id,
         )
     except SpotifyApiError as exc:
         logging.error("%s\n%s", exc, exc.details)
@@ -139,7 +212,10 @@ def main(argv: list[str] | None = None) -> int:
         logging.error("%s", exc)
         return 1
 
+    print(f"Mode: {report.mode}")
     print(f"Playlist name: {report.playlist_name}")
+    if report.playlist_id:
+        print(f"Playlist id: {report.playlist_id}")
     if report.playlist_url:
         print(f"Playlist URL: {report.playlist_url}")
     print(f"Matched: {len(report.matched)}")

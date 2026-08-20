@@ -1,6 +1,6 @@
 # Tutorial
 
-This walkthrough converts a YouTube description (or any pasted list) into a Spotify playlist.
+This walkthrough converts a YouTube description (or any pasted list) into a Spotify playlist, or edits one you already own.
 
 ## 1. Install
 
@@ -8,34 +8,28 @@ This walkthrough converts a YouTube description (or any pasted list) into a Spot
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
 ```
 
-## 2. Spotify app
+A `.env` file is optional. End users do not need a Client Secret. See [spotify-app-and-tokens.md](spotify-app-and-tokens.md) if you fork the project or change redirect URIs.
 
-Follow [spotify-app-and-tokens.md](spotify-app-and-tokens.md) so `.env` has:
+Ask the project owner to add your Spotify account e-mail under Dashboard → User Management (Development Mode, max 5 people).
 
-- `SPOTIFY_CLIENT_ID`
-- `SPOTIFY_CLIENT_SECRET`
-- `SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback`
-
-## 3. First login
-
-Run a dry search. Spotipy opens a browser for consent:
+## 2. First login (CLI)
 
 ```bash
 python main.py --text "The Weeknd - Blinding Lights" --dry-run
 ```
 
-Confirm which account was connected and what it may do:
+A browser opens for Spotify consent. Confirm the account and scopes:
 
 ```bash
 python main.py --check-auth
+python main.py --list-playlists
 ```
 
-See [oauth-login.md](oauth-login.md) if the redirect URI does not match, if scopes are missing, or if a playlist write returns 403.
+See [oauth-login.md](oauth-login.md) if the redirect URI does not match, if scopes are missing, or if a write returns 403.
 
-## 4. YouTube URL
+## 3. YouTube URL → new playlist
 
 ```bash
 python main.py --url "https://www.youtube.com/watch?v=VIDEO_ID"
@@ -43,22 +37,27 @@ python main.py --url "https://www.youtube.com/watch?v=VIDEO_ID"
 
 `yt-dlp` reads the description only (no video file). The playlist name defaults to the video title.
 
-## 5. Pasted mixed text
-
-You can paste timestamps, promo lines, and titles together:
-
-```text
-00:00 Artist One - First Track
-Subscribe for more
-Blinding Lights
-01:12 Second Artist – Another Song
-```
+## 4. Pasted mixed text
 
 ```bash
-python main.py --text "paste the block here"
+python main.py --text "00:00 Artist One - First Track
+Subscribe for more
+Blinding Lights"
 ```
 
-Weak Spotify matches are skipped. Tune with `--min-score` (default `0.45`).
+Weak matches are skipped. Tune with `--min-score` (default `0.45`). Playlists are private unless you pass `--public`.
+
+## 5. Edit an existing playlist
+
+```bash
+python main.py --list-playlists
+python main.py --mode append --playlist-id PLAYLIST_ID --text "Daft Punk - One More Time"
+python main.py --mode replace --playlist-id PLAYLIST_ID --file tracks.txt
+python main.py --mode remove --playlist-id PLAYLIST_ID --text "Blinding Lights"
+python main.py --mode update --playlist-id PLAYLIST_ID --name "New title" --private
+```
+
+You can only change playlists you own.
 
 ## 6. Streamlit UI
 
@@ -66,6 +65,4 @@ Weak Spotify matches are skipped. Tune with `--min-score` (default `0.45`).
 streamlit run app.py
 ```
 
-Use the URL field **or** the large text box, optionally set a playlist name, then **Create playlist**. Playlists are private unless you tick **Public playlist** (`--public` on the CLI).
-
-The Streamlit process never opens a browser by itself. On the first run it shows a Spotify consent link: approve access, copy the full redirect URL containing `?code=`, paste it into **Redirect URL**, and press *Finish sign-in*. The sidebar keeps **Check connection** and **Re-authenticate** for troubleshooting.
+Sign in with Spotify (automatic redirect back to this page). Use **Create new playlist** or pick one of yours and append, replace, remove, or update details.

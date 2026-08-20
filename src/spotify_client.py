@@ -1,33 +1,43 @@
-"""Spotify OAuth client: search each line and create playlists."""
+"""Spotify PKCE client: search, create, and edit playlists."""
 
 from __future__ import annotations
 
 import logging
-import os
 import re
 import time
 from difflib import SequenceMatcher
-from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
-from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from spotipy import Spotify, SpotifyException
-from spotipy.oauth2 import SpotifyOAuth
+from spotipy.cache_handler import CacheHandler
+from spotipy.oauth2 import SpotifyOauthError, SpotifyPKCE, SpotifyStateError
 
+from src.auth import (
+    CACHE_PATH,
+    SCOPES,
+    DictCacheHandler,
+    build_pkce,
+    clear_file_token,
+    cli_redirect_uri,
+    file_cache_handler,
+    parse_redirect_params,
+    restore_pkce_handshake,
+    web_redirect_uri,
+)
 from src.parser import LineQuery
 
 logger = logging.getLogger(__name__)
 
-SCOPES = "playlist-modify-public playlist-modify-private"
 BATCH_SIZE = 100
-CACHE_PATH = ".cache-spotiffy"
 NAME_MAX_LEN = 100
 PAREN_RE = re.compile(r"\([^)]*\)|\[[^\]]*\]")
 EXTRA_RE = re.compile(
     r"\b(feat\.?|ft\.?|featuring|remix|official|video|audio|lyrics?|hd|4k)\b",
     re.IGNORECASE,
 )
+
+PlaylistMode = Literal["create", "append", "replace", "remove", "update"]
 
 
 class MatchedTrack(BaseModel):
@@ -43,10 +53,20 @@ class SkippedLine(BaseModel):
     reason: str
 
 
+class PlaylistInfo(BaseModel):
+    id: str
+    name: str
+    url: str = ""
+    public: bool | None = None
+    track_count: int = 0
+    owner_id: str = ""
+
+
 class PlaylistReport(BaseModel):
     playlist_name: str
     playlist_url: str | None = None
     playlist_id: str | None = None
+    mode: str = "create"
     matched: list[MatchedTrack] = Field(default_factory=list)
     skipped: list[SkippedLine] = Field(default_factory=list)
 
@@ -73,25 +93,12 @@ def describe_spotify_error(exc: SpotifyException, *, action: str) -> str:
         lines.append(f"retry_after: {retry_after}")
     if exc.http_status == 403:
         lines.append(
-            "hint: 403 on playlist writes usually means the granted token is "
-            "missing playlist-modify-* scopes, or the app is in Development mode "
-            "and this Spotify account is not on its user list. "
-            "Run `python main.py --check-auth` and see docs/oauth-login.md."
+            "hint: 403 usually means this Spotify account is not on the app "
+            "allowlist (Development Mode, max 5 users) or the token is missing "
+            "playlist-modify-* scopes. The owner must add your Spotify e-mail "
+            "under Dashboard → User Management. See docs/oauth-login.md."
         )
     return "\n".join(lines)
-
-
-def clear_cached_token(cache_path: str = CACHE_PATH) -> bool:
-    """Delete the cached OAuth token so the next run asks for consent again."""
-    path = Path(cache_path)
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        return False
-    except OSError as exc:
-        raise RuntimeError(f"Could not remove token cache {path}: {exc}") from exc
-    logger.info("Removed cached Spotify token %s", path)
-    return True
 
 
 def clamp_playlist_name(name: str) -> str:
@@ -100,16 +107,6 @@ def clamp_playlist_name(name: str) -> str:
     if not collapsed:
         raise ValueError("Playlist name is empty")
     return collapsed[:NAME_MAX_LEN].strip()
-
-
-def _require_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if not value:
-        raise RuntimeError(
-            f"Missing {name}. Copy .env.example to .env and fill in Spotify Dashboard "
-            "credentials. See docs/spotify-app-and-tokens.md."
-        )
-    return value
 
 
 def simplify_query(text: str) -> str:
@@ -131,12 +128,13 @@ def score_candidate(query: str, item: dict) -> float:
     similarity = SequenceMatcher(None, query.lower(), label.lower()).ratio()
     q_tokens = set(query.lower().split())
     l_tokens = set(label.lower().split())
-    if q_tokens:
-        overlap = len(q_tokens & l_tokens) / len(q_tokens)
-    else:
-        overlap = 0.0
+    overlap = (len(q_tokens & l_tokens) / len(q_tokens)) if q_tokens else 0.0
     popularity = float(item.get("popularity") or 0) / 100.0
     return (0.6 * similarity) + (0.3 * overlap) + (0.1 * popularity)
+
+
+def clear_cached_token(cache_path: str = CACHE_PATH) -> bool:
+    return clear_file_token(cache_path)
 
 
 class SpotifyClient:
@@ -147,54 +145,83 @@ class SpotifyClient:
         *,
         open_browser: bool = True,
         cache_path: str = CACHE_PATH,
+        cache_handler: CacheHandler | None = None,
+        redirect_uri: str | None = None,
+        state: str | None = None,
+        use_web_redirect: bool = False,
+        auth: SpotifyPKCE | None = None,
     ) -> None:
-        load_dotenv()
-        client_id = _require_env("SPOTIFY_CLIENT_ID")
-        client_secret = _require_env("SPOTIFY_CLIENT_SECRET")
-        redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback")
-        self._redirect_uri = redirect_uri
+        if auth is not None:
+            self._auth = auth
+        else:
+            handler = cache_handler or file_cache_handler(cache_path)
+            uri = redirect_uri or (
+                web_redirect_uri() if use_web_redirect else cli_redirect_uri()
+            )
+            self._auth = build_pkce(
+                redirect_uri=uri,
+                cache_handler=handler,
+                open_browser=open_browser,
+                state=state,
+            )
+        self._redirect_uri = self._auth.redirect_uri
         self._cache_path = cache_path
-        self._auth = SpotifyOAuth(
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_uri=redirect_uri,
-            scope=SCOPES,
-            open_browser=open_browser,
-            cache_path=cache_path,
-        )
         self._sp = Spotify(auth_manager=self._auth)
 
-    def authorize_url(self) -> str:
-        """Consent URL to open manually when no browser is available."""
-        return self._auth.get_authorize_url()
+    def authorize_url(self, state: str | None = None) -> str:
+        """Consent URL. Store code_verifier before the user leaves the page."""
+        return self._auth.get_authorize_url(state=state)
+
+    def pkce_handshake(self) -> tuple[str, str]:
+        if not self._auth.code_verifier:
+            self._auth.get_pkce_handshake_parameters()
+        return str(self._auth.code_verifier), str(self._auth.code_challenge)
+
+    def restore_handshake(self, verifier: str, challenge: str | None) -> None:
+        restore_pkce_handshake(self._auth, verifier, challenge)
 
     def has_cached_token(self) -> bool:
         return bool(self._auth.cache_handler.get_cached_token())
 
-    def complete_auth(self, redirect_response: str) -> None:
-        """Exchange the ?code= from a pasted redirect URL for a cached token."""
-        response = redirect_response.strip()
-        if not response:
-            raise RuntimeError("Paste the full redirect URL first")
-        code = self._auth.parse_response_code(response)
-        if not code or code == response:
+    def complete_auth(self, redirect_response: str, *, expected_state: str | None = None) -> None:
+        """Exchange the ?code= from a redirect URL for a cached token."""
+        params = parse_redirect_params(redirect_response)
+        if params.get("error"):
+            raise RuntimeError(f"Spotify denied access: {params['error']}")
+        code = params.get("code") or self._auth.parse_response_code(redirect_response.strip())
+        if not code or code == redirect_response.strip():
             raise RuntimeError(
-                "No ?code= parameter found in the pasted URL. Copy the whole "
-                "address bar contents after approving access."
+                "No ?code= parameter found. Copy the whole address bar after "
+                "approving access, or open the app from the Spotify redirect."
+            )
+        returned_state = params.get("state")
+        expected = expected_state if expected_state is not None else self._auth.state
+        if expected and returned_state and returned_state != expected:
+            raise RuntimeError("OAuth state mismatch; start sign-in again.")
+        if not self._auth.code_verifier:
+            raise RuntimeError(
+                "PKCE verifier is missing. Start sign-in from this same browser "
+                "session so the consent URL and callback stay paired."
             )
         try:
-            self._auth.get_access_token(code, as_dict=False, check_cache=False)
+            self._auth.get_access_token(code, check_cache=False)
+        except SpotifyStateError as exc:
+            raise RuntimeError("OAuth state mismatch; start sign-in again.") from exc
+        except SpotifyOauthError as exc:
+            raise RuntimeError(f"Could not exchange the OAuth code: {exc}") from exc
         except SpotifyException as exc:
             details = describe_spotify_error(exc, action="POST /api/token")
             logger.error("Token exchange failed\n%s", details)
             raise SpotifyApiError("Could not exchange the OAuth code", details) from exc
-        except Exception as exc:  # spotipy wraps requests errors loosely
-            raise RuntimeError(f"Could not exchange the OAuth code: {exc}") from exc
-        logger.info("Stored a fresh Spotify token in %s", self._cache_path)
+        logger.info("Stored a fresh Spotify user token (PKCE)")
 
     def sign_out(self) -> bool:
-        """Drop the cached token for this client."""
-        return clear_cached_token(self._cache_path)
+        handler = self._auth.cache_handler
+        if isinstance(handler, DictCacheHandler):
+            had = bool(handler.get_cached_token())
+            handler.clear()
+            return had
+        return clear_file_token(self._cache_path)
 
     def granted_scopes(self) -> list[str]:
         token = self._auth.cache_handler.get_cached_token() or {}
@@ -235,6 +262,17 @@ class SpotifyClient:
         status["product"] = str(me.get("product") or "unknown")
         status["country"] = str(me.get("country") or "unknown")
         return status
+
+    def current_user_id(self) -> str:
+        try:
+            me = self._sp.current_user() or {}
+        except SpotifyException as exc:
+            details = describe_spotify_error(exc, action="GET /v1/me")
+            raise SpotifyApiError("Could not read the Spotify account", details) from exc
+        user_id = str(me.get("id") or "")
+        if not user_id:
+            raise RuntimeError("Spotify returned an empty user id")
+        return user_id
 
     def _search(self, q: str) -> list[dict]:
         if not q.strip():
@@ -337,6 +375,67 @@ class SpotifyClient:
             )
         return matched, skipped
 
+    def list_own_playlists(self) -> list[PlaylistInfo]:
+        user_id = self.current_user_id()
+        playlists: list[PlaylistInfo] = []
+        offset = 0
+        while True:
+            try:
+                page = self._sp.current_user_playlists(limit=50, offset=offset) or {}
+            except SpotifyException as exc:
+                details = describe_spotify_error(exc, action="GET /v1/me/playlists")
+                raise SpotifyApiError("Could not list playlists", details) from exc
+            items = page.get("items") or []
+            for raw in items:
+                owner = (raw.get("owner") or {}).get("id") or ""
+                if owner != user_id:
+                    continue
+                playlists.append(_playlist_info(raw, owner_id=user_id))
+            if not page.get("next") or not items:
+                break
+            offset += len(items)
+        return playlists
+
+    def require_owned_playlist(self, playlist_id: str) -> dict:
+        try:
+            playlist = self._sp.playlist(playlist_id) or {}
+        except SpotifyException as exc:
+            details = describe_spotify_error(
+                exc, action=f"GET /v1/playlists/{playlist_id}"
+            )
+            raise SpotifyApiError("Could not load playlist", details) from exc
+        owner = str((playlist.get("owner") or {}).get("id") or "")
+        if owner != self.current_user_id():
+            raise RuntimeError("You can only edit playlists you own")
+        return playlist
+
+    def update_playlist_details(
+        self,
+        playlist_id: str,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        public: bool | None = None,
+    ) -> PlaylistInfo:
+        playlist = self.require_owned_playlist(playlist_id)
+        kwargs: dict[str, object] = {}
+        if name is not None:
+            kwargs["name"] = clamp_playlist_name(name)
+        if description is not None:
+            kwargs["description"] = description
+        if public is not None:
+            kwargs["public"] = public
+        if kwargs:
+            try:
+                self._sp.playlist_change_details(playlist_id, **kwargs)
+            except SpotifyException as exc:
+                details = describe_spotify_error(
+                    exc, action=f"PUT /v1/playlists/{playlist_id}"
+                )
+                raise SpotifyApiError("Could not update playlist details", details) from exc
+            playlist.update(kwargs)
+        return _playlist_info(playlist, owner_id=str((playlist.get("owner") or {}).get("id") or ""))
+
     def create_playlist(
         self,
         name: str,
@@ -371,18 +470,65 @@ class SpotifyClient:
         url = ((playlist or {}).get("external_urls") or {}).get("spotify")
         if not playlist_id:
             raise RuntimeError("Spotify returned a playlist without an id")
+        self._add_uris(playlist_id, uris)
+        logger.info("Created playlist %s with %s tracks", playlist_name, len(uris))
+        return playlist_id, str(url or "")
+
+    def append_tracks(self, playlist_id: str, uris: list[str]) -> PlaylistInfo:
+        playlist = self.require_owned_playlist(playlist_id)
+        self._add_uris(playlist_id, uris)
+        return _playlist_info(playlist)
+
+    def replace_tracks(self, playlist_id: str, uris: list[str]) -> PlaylistInfo:
+        playlist = self.require_owned_playlist(playlist_id)
+        first, rest = uris[:BATCH_SIZE], uris[BATCH_SIZE:]
+        try:
+            self._sp.playlist_replace_items(playlist_id, first)
+        except SpotifyException as exc:
+            details = describe_spotify_error(
+                exc, action=f"PUT /v1/playlists/{playlist_id}/items"
+            )
+            raise SpotifyApiError("Could not replace playlist tracks", details) from exc
+        if rest:
+            self._add_uris(playlist_id, rest)
+        return _playlist_info(playlist)
+
+    def remove_tracks(self, playlist_id: str, uris: list[str]) -> PlaylistInfo:
+        playlist = self.require_owned_playlist(playlist_id)
+        unique = list(dict.fromkeys(uris))
+        for i in range(0, len(unique), BATCH_SIZE):
+            chunk = unique[i : i + BATCH_SIZE]
+            try:
+                self._sp.playlist_remove_all_occurrences_of_items(playlist_id, chunk)
+            except SpotifyException as exc:
+                details = describe_spotify_error(
+                    exc, action=f"DELETE /v1/playlists/{playlist_id}/items"
+                )
+                raise SpotifyApiError("Could not remove tracks", details) from exc
+        return _playlist_info(playlist)
+
+    def _add_uris(self, playlist_id: str, uris: list[str]) -> None:
         for i in range(0, len(uris), BATCH_SIZE):
             chunk = uris[i : i + BATCH_SIZE]
             try:
                 self._sp.playlist_add_items(playlist_id, chunk)
             except SpotifyException as exc:
                 details = describe_spotify_error(
-                    exc, action=f"POST /v1/playlists/{playlist_id}/tracks"
+                    exc, action=f"POST /v1/playlists/{playlist_id}/items"
                 )
                 logger.error("Adding tracks failed\n%s", details)
                 raise SpotifyApiError(
                     f"Could not add tracks to playlist (HTTP {exc.http_status})",
                     details,
                 ) from exc
-        logger.info("Created playlist %s with %s tracks", playlist_name, len(uris))
-        return playlist_id, str(url or "")
+
+
+def _playlist_info(raw: dict, owner_id: str = "") -> PlaylistInfo:
+    return PlaylistInfo(
+        id=str(raw.get("id") or ""),
+        name=str(raw.get("name") or ""),
+        url=str((raw.get("external_urls") or {}).get("spotify") or ""),
+        public=raw.get("public"),
+        track_count=int((raw.get("tracks") or {}).get("total") or 0),
+        owner_id=owner_id or str((raw.get("owner") or {}).get("id") or ""),
+    )

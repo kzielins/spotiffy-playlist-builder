@@ -1,36 +1,45 @@
 # Spotify app and tokens
 
-The converter uses the [Spotify Web API](https://developer.spotify.com/documentation/web-api) through Spotipy. You need a **Client ID** and **Client Secret** from the Developer Dashboard. Those values are *not* the same as the user access token created after browser login (see [oauth-login.md](oauth-login.md)).
+The converter uses the [Spotify Web API](https://developer.spotify.com/documentation/web-api) through **Authorization Code with PKCE**. People who use the CLI or the website **do not need a Client Secret** and do not generate tokens by hand. They sign in with Spotify in the browser.
 
-## Create an app
+The **project owner** registers one Spotify app. Its public Client ID is built into this repository (override with `SPOTIFY_CLIENT_ID` if you fork).
 
-1. Sign in at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard).
-2. Click **Create app**.
-3. Give it a name and description (for example `Spotiffy playlist builder`).
-4. Add the redirect URI exactly:
+## End users
 
-   `http://127.0.0.1:8888/callback`
+1. Open the Streamlit app or run the CLI.
+2. Approve **playlist-modify-public** and **playlist-modify-private** on the Spotify consent page.
+3. After redirect, the app stores a user access token (CLI: `.cache-spotiffy`; Streamlit: that browser session only).
+
+You never paste a Client Secret. Search, playlist create, and playlist edit all use the token Spotify issues after that consent.
+
+## Project owner (once)
+
+1. Sign in at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard). The owner account must have **Spotify Premium** while the app stays in Development Mode.
+2. Open the app (or **Create app** if you fork).
+3. Add **both** redirect URIs exactly:
+
+   - `http://127.0.0.1:8888/callback` (CLI)
+   - `http://127.0.0.1:8501/` (local Streamlit)
 
    Prefer `127.0.0.1` over `localhost`. They are not interchangeable for Spotify.
-5. Save. Open the app and copy **Client ID**. Reveal and copy **Client Secret**.
+4. Under **User Management**, add up to **5** Spotify account e-mails that may use the app. Development Mode will not serve anyone else until you obtain [Extended Quota Mode](https://developer.spotify.com/documentation/web-api/concepts/quota-modes).
 
-## Local environment file
+## Optional local overrides
 
-Copy `.env.example` to `.env` in the project root (never commit `.env`):
+Copy `.env.example` to `.env` only if you fork the app or change redirect URIs:
 
 ```env
-SPOTIFY_CLIENT_ID=your_spotify_client_id
-SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+# Leave empty to use this project's public Client ID
+SPOTIFY_CLIENT_ID=
 SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback
+SPOTIFY_WEB_REDIRECT_URI=http://127.0.0.1:8501/
 ```
 
-## Rotate a secret
-
-If a secret leaks, open the Dashboard app, rotate the Client Secret, update `.env`, and delete `.cache-spotiffy` so the next run requests a new user token.
+Do **not** put a Client Secret in `.env`. PKCE does not use it.
 
 ## Scopes requested by this project
 
-- `playlist-modify-public`
-- `playlist-modify-private`
+- `playlist-modify-public` — create and edit public playlists
+- `playlist-modify-private` — create and edit private playlists
 
-No other scopes are required.
+Those scopes also cover searching the catalog while a user is signed in. No other scopes are required.
