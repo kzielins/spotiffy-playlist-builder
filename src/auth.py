@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import secrets
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, MutableMapping
 from urllib.parse import parse_qs, urlparse, urlunparse
@@ -39,6 +41,55 @@ class DictCacheHandler(CacheHandler):
 
     def clear(self) -> None:
         self.store.pop(self.key, None)
+
+
+@dataclass
+class PendingAuth:
+    """PKCE handshake waiting for Spotify's redirect."""
+
+    state: str
+    verifier: str
+    challenge: str
+    redirect_uri: str
+    created_at: float = field(default_factory=time.time)
+
+
+class PendingAuthStore:
+    """Handshakes waiting for the Spotify redirect; survives page reloads."""
+
+    def __init__(
+        self,
+        store: MutableMapping[str, PendingAuth] | None = None,
+        ttl: float = 600.0,
+    ) -> None:
+        self._store: MutableMapping[str, PendingAuth] = store if store is not None else {}
+        self.ttl = ttl
+
+    def _purge(self, now: float | None = None) -> None:
+        moment = time.time() if now is None else now
+        expired = [
+            key
+            for key, pending in self._store.items()
+            if moment - pending.created_at > self.ttl
+        ]
+        for key in expired:
+            self._store.pop(key, None)
+
+    def register(self, pending: PendingAuth) -> None:
+        self._purge()
+        self._store[pending.state] = pending
+
+    def consume(self, state: str) -> PendingAuth | None:
+        """Pop a still-valid handshake. Unknown or expired state returns None."""
+        self._purge()
+        if not state:
+            return None
+        pending = self._store.pop(state, None)
+        if pending is None:
+            return None
+        if time.time() - pending.created_at > self.ttl:
+            return None
+        return pending
 
 
 def load_client_id() -> str:
