@@ -1,14 +1,18 @@
 # Spotiffy playlist builder
 
-Turn a **YouTube video description** or any **pasted text** into a **Spotify playlist**.
+Turn a **YouTube video description** or any **pasted text** into a **Spotify playlist**, or edit a playlist you already own.
 
 Each line is cleaned (timestamps, numbering, URLs) and searched on Spotify. The best matching track is kept when the score is high enough. Lines that look like “subscribe” noise are skipped. The playlist name is optional: if you omit it, the tool suggests one from the video title or the first useful line.
 
+Users sign in with Spotify in the browser. **No Client Secret and no hand-made token** are required.
+
 ## Features
 
-- CLI and a simple Streamlit UI
+- CLI and a Streamlit UI
+- OAuth PKCE (one shared Client ID; per-session tokens on the website)
 - YouTube descriptions via `yt-dlp` (metadata only, no video download)
 - Mixed text: not only `Artist - Title` lines
+- Create, append, replace, remove, and rename/visibility updates on **your** playlists
 - Fallback Spotify search and a match-score threshold
 - Batch add (100 URIs) and a found vs skipped report
 
@@ -28,11 +32,9 @@ Python 3.11+ is required.
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env
 ```
 
-Edit `.env` with your Spotify Client ID, Client Secret, and redirect URI
-`http://127.0.0.1:8888/callback`. Details: [docs/spotify-app-and-tokens.md](docs/spotify-app-and-tokens.md).
+Ask the project owner to add your Spotify e-mail to the app allowlist (Development Mode, max 5 users). Details: [docs/spotify-app-and-tokens.md](docs/spotify-app-and-tokens.md).
 
 ## CLI
 
@@ -45,13 +47,14 @@ Blinding Lights"
 python main.py --file tracks.txt --dry-run
 python main.py --stdin
 python main.py --check-auth
+python main.py --list-playlists
+python main.py --mode append --playlist-id PLAYLIST_ID --text "Daft Punk - One More Time"
 ```
 
-`--name` is optional. `--dry-run` prints matches without creating a playlist, and
-`--public` makes the new playlist public instead of private. `--check-auth` shows
-the connected account and granted scopes, `--relogin` clears the cached token.
-The first Spotify login opens a browser; see [docs/oauth-login.md](docs/oauth-login.md)
-for the OAuth flow and 403 troubleshooting.
+`--name` is optional. `--dry-run` prints matches without writing to Spotify.
+`--public` / `--private` set visibility. `--mode` is `create` (default), `append`,
+`replace`, `remove`, or `update`. The first login opens a browser; see
+[docs/oauth-login.md](docs/oauth-login.md).
 
 ## Streamlit
 
@@ -59,12 +62,8 @@ for the OAuth flow and 403 troubleshooting.
 streamlit run app.py
 ```
 
-Paste a YouTube URL **or** a description. If both are filled, the URL wins.
-Leave the playlist name empty to use a suggestion. Click **Create playlist**.
-
-On the first run the app shows a Spotify consent link and asks you to paste the
-redirect URL back, so it also works where the server cannot open a browser. The
-sidebar has **Check connection** and **Re-authenticate**.
+Click **Sign in with Spotify**. Paste a YouTube URL **or** a description. Create a
+new playlist or pick one you own and append, replace, remove, or update its details.
 
 ## License
 

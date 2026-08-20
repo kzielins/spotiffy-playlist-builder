@@ -1,29 +1,38 @@
 # OAuth login
 
-Spotipy uses **Authorization Code** flow (`SpotifyOAuth`). The first CLI or Streamlit run opens a browser so you can allow the app to create playlists on your account.
+Spotiffy uses **Authorization Code with PKCE** (`SpotifyPKCE`). There is no Client Secret. The first CLI or Streamlit run sends you to Spotify so you can allow playlist search, create, and edit on **your** account.
 
 ## What happens
 
-1. The app reads Client ID / Secret from `.env`.
-2. Your browser opens the Spotify consent screen.
-3. After you accept, Spotify redirects to `http://127.0.0.1:8888/callback`.
-4. Spotipy stores a refreshable token in `.cache-spotiffy` (gitignored).
+1. The app uses the project's public Client ID (or `SPOTIFY_CLIENT_ID` if you override it).
+2. Your browser opens the Spotify consent screen with scopes `playlist-modify-public playlist-modify-private`.
+3. After you accept, Spotify redirects:
+   - CLI → `http://127.0.0.1:8888/callback`
+   - Streamlit → `http://127.0.0.1:8501/` (query string includes `?code=` and `state`)
+4. The app exchanges the code plus a PKCE verifier for an access token and a refresh token.
+   - CLI stores them in `.cache-spotiffy` (gitignored).
+   - Streamlit stores them only in **that browser session**, so two users on the same server cannot share a login.
 
-Later runs reuse the cache until you revoke access or delete the file.
+Later CLI runs reuse the cache until you revoke access or delete the file. Streamlit asks again in a new session.
 
 ## Who is who in this flow
 
-- **Client ID / Secret** identify the *app* and stay in `.env`.
-- **Your Spotify account** grants the app permission during the browser consent step.
-- The playlist is always created on the account that approved the consent screen, so an ordinary (non-Premium) account is enough.
+- **Client ID** identifies this project. It is public. Users do not register their own Spotify developer app.
+- **Your Spotify account** grants playlist rights on the consent screen.
+- Playlists are always created or edited on the account that approved consent. A listener account is enough; Premium is required only for the **app owner** in Development Mode.
+
+## Development Mode limit
+
+Spotify currently allows **at most 5 allowlisted users** per Development Mode app. The owner must add each person's Spotify e-mail under Dashboard → User Management. Anyone else can often complete the consent screen, then get **403** on search or playlist writes. There is no code workaround; the owner must add the user or apply for Extended Quota Mode.
 
 ## Check the connection
 
 ```bash
 python main.py --check-auth
+python main.py --list-playlists
 ```
 
-It prints the signed-in user, the granted scopes, the redirect URI, and the cache file — never the token itself. Expected scopes:
+`--check-auth` prints the signed-in user, granted scopes, redirect URI, and cache path — never the token. Expected scopes:
 
 ```
 playlist-modify-private playlist-modify-public
@@ -31,40 +40,30 @@ playlist-modify-private playlist-modify-public
 
 ## Common errors
 
-- **Redirect URI mismatch** — the URI in the Dashboard must match `.env` exactly, including `http://127.0.0.1:8888/callback`.
-- **INVALID_CLIENT** — wrong Client ID or Secret.
-- **Browser does not open** — run the CLI in a real terminal, or use the Streamlit sign-in flow below, which never needs a browser on the server.
+- **Redirect URI mismatch** — every URI in the Dashboard must match `.env` / the defaults exactly, including `http://127.0.0.1:8888/callback` and `http://127.0.0.1:8501/`.
+- **OAuth state mismatch** — start sign-in again from the same Streamlit session; do not mix two tabs from different logins.
+- **PKCE verifier missing** — Streamlit must generate the consent link and receive the redirect in the same browser session.
+- **Browser does not open (CLI)** — run the CLI in a real terminal so Spotipy can start the local callback server on port 8888.
 
-## 403 Forbidden when creating a playlist
+## 403 Forbidden
 
-Search works, then the playlist call fails. Work through these in order:
+1. **Allowlist.** Add the user's Spotify e-mail in User Management (max 5 in Development Mode).
+2. **Missing scopes.** `python main.py --relogin --check-auth`.
+3. **Wrong playlist endpoint (fixed).** Writes go to `POST /v1/me/playlists` and the user's own playlist ids, never another account.
+4. **Foreign playlist.** You can only edit playlists you own.
 
-1. **Wrong endpoint (fixed in this project).** Creating playlists through `POST /v1/users/{user_id}/playlists` can return 403 even with valid scopes. Spotiffy now calls `POST /v1/me/playlists`, which always targets the account that approved consent. If you forked an older revision, apply the same change.
-2. **Missing scopes.** Run `python main.py --check-auth`. If `MISSING scopes` is listed, the cached token predates a scope change:
-
-```bash
-python main.py --relogin --check-auth
-```
-
-3. **App in Development mode.** In the Spotify Dashboard, open your app → *User Management* and add the e-mail of every account that should use it. Accounts outside that list get 403 on write calls.
-4. **Stale or foreign token.** Delete the cache and consent again with the intended account:
-
-```bash
-rm -f .cache-spotiffy && python main.py --check-auth
-```
-
-Every failed call is logged with the full server response — HTTP status, Spotify error code, `reason`, and message — so the log tells you which of the cases above you hit. In Streamlit the same dump is available under *Spotify error details*.
+Failed calls log HTTP status, API code, `reason`, and message. Streamlit shows the same dump under *Spotify error details*.
 
 ## Signing in from Streamlit
 
-The Streamlit app never opens a browser on the server. When no token is cached it shows a consent link; approve access, then copy the whole URL you were redirected to (it contains `?code=`) and paste it into **Redirect URL** → *Finish sign-in*. The sidebar has **Check connection** and **Re-authenticate** (clears the cached token).
+Click **Sign in with Spotify**. After you approve access, Spotify sends you back to the app with `?code=`; login finishes automatically. Use **Log out** in the sidebar to drop the session token.
 
-## Sign out
-
-Delete the cache file in the project root:
+## Sign out (CLI)
 
 ```bash
-rm -f .cache-spotiffy .cache*
+python main.py --relogin
+# or
+rm -f .cache-spotiffy
 ```
 
-The next command will prompt for login again. You can also revoke the app under [Spotify account apps](https://www.spotify.com/account/apps/).
+You can also revoke the app under [Spotify account apps](https://www.spotify.com/account/apps/).

@@ -9,7 +9,13 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Fill in Spotify credentials as described in [docs/spotify-app-and-tokens.md](docs/spotify-app-and-tokens.md).
+Fill in optional Spotify Client ID / redirect overrides only if you fork the app; see [docs/spotify-app-and-tokens.md](docs/spotify-app-and-tokens.md). End users sign in with Spotify and do not need a Client Secret.
+
+## Tests
+
+```bash
+pytest
+```
 
 ## Changes
 

@@ -6,3 +6,5 @@
 - [GitHub PAT](github.md)
 
 `archive/` holds original design notes (PDF). It is not the user guide.
+
+`archive/` holds original design notes (PDF). It is not the user guide.
