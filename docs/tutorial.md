@@ -65,4 +65,4 @@ You can only change playlists you own.
 streamlit run app.py
 ```
 
-Sign in with Spotify (automatic redirect back to this page). Use **Create new playlist** or pick one of yours and append, replace, remove, or update details.
+Sign in with Spotify (automatic redirect back to this page). On [Streamlit Cloud](https://spotifyplaylist.streamlit.app) the consent URL uses `https://spotifyplaylist.streamlit.app/` — that URI must be in the Spotify Dashboard. Use **Create new playlist** or pick one of yours and append, replace, remove, or update details.

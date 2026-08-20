@@ -7,7 +7,7 @@ import os
 import secrets
 from pathlib import Path
 from typing import Any, MutableMapping
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 
 from dotenv import load_dotenv
 from spotipy.cache_handler import CacheFileHandler, CacheHandler
@@ -52,10 +52,47 @@ def cli_redirect_uri() -> str:
 
 
 def web_redirect_uri() -> str:
+    return resolve_web_redirect_uri()
+
+
+def normalize_web_redirect_uri(url: str) -> str:
+    """Keep scheme, host, and path. Drop query/fragment. Add a trailing slash for directories."""
+    parsed = urlparse(url.strip())
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError(f"Invalid redirect URI: {url!r}")
+    path = parsed.path or "/"
+    leaf = path.rsplit("/", 1)[-1]
+    looks_like_file = bool(leaf) and "." in leaf
+    if not looks_like_file and not path.endswith("/"):
+        path = f"{path}/"
+    return urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
+
+
+def resolve_web_redirect_uri(current_url: str | None = None) -> str:
+    """Env override, then the live Streamlit URL, then the local default.
+
+    A loopback env value is ignored when the browser is on a public host so
+    Streamlit Cloud is not stuck with http://127.0.0.1:8501/.
+    """
     load_dotenv()
-    return (
-        os.getenv("SPOTIFY_WEB_REDIRECT_URI", WEB_REDIRECT_URI).strip() or WEB_REDIRECT_URI
-    )
+    explicit = os.getenv("SPOTIFY_WEB_REDIRECT_URI", "").strip()
+    detected = ""
+    if current_url and current_url.strip():
+        detected = normalize_web_redirect_uri(current_url)
+    if explicit:
+        normalized = normalize_web_redirect_uri(explicit)
+        if detected:
+            env_host = (urlparse(normalized).hostname or "").lower()
+            live_host = (urlparse(detected).hostname or "").lower()
+            if env_host in {"127.0.0.1", "localhost"} and live_host not in {
+                "127.0.0.1",
+                "localhost",
+            }:
+                return detected
+        return normalized
+    if detected:
+        return detected
+    return WEB_REDIRECT_URI
 
 
 def build_pkce(
