@@ -1,0 +1,5 @@
+spotipy>=2.24.0,<3
+python-dotenv>=1.0.1,<2
+yt-dlp>=2024.8.6
+streamlit>=1.38.0,<2
+pydantic>=2.8.0,<3

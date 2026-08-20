@@ -1,0 +1,22 @@
+[project]
+name = "spotiffy-playlist-builder"
+version = "0.1.0"
+description = "Turn YouTube descriptions or pasted track lists into Spotify playlists."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "kzielins" }]
+dependencies = [
+  "spotipy>=2.24.0,<3",
+  "python-dotenv>=1.0.1,<2",
+  "yt-dlp>=2024.8.6",
+  "streamlit>=1.38.0,<2",
+  "pydantic>=2.8.0,<3",
+]
+
+[project.urls]
+Homepage = "https://github.com/kzielins/spotiffy-playlist-builder"
+Issues = "https://github.com/kzielins/spotiffy-playlist-builder/issues"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
