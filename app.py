@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.auth import DictCacheHandler, new_oauth_state, web_redirect_uri
+from src.auth import DictCacheHandler, new_oauth_state, resolve_web_redirect_uri
 from src.parser import suggest_playlist_name
 from src.pipeline import load_source, run_pipeline
 from src.spotify_client import PlaylistMode, SpotifyApiError, SpotifyClient
@@ -27,14 +27,22 @@ def show_error(message: str, details: str = "") -> None:
             st.code(details)
 
 
+def current_web_redirect() -> str:
+    """Spotify redirect URI for this browser origin (local or Streamlit Cloud)."""
+    live = getattr(st.context, "url", None)
+    return resolve_web_redirect_uri(live)
+
+
 def session_client() -> SpotifyClient:
     store = st.session_state.setdefault("spotify_token_store", {})
     if "oauth_state" not in st.session_state:
         st.session_state.oauth_state = new_oauth_state()
+    redirect_uri = current_web_redirect()
+    st.session_state.oauth_redirect_uri = redirect_uri
     client = SpotifyClient(
         open_browser=False,
         cache_handler=DictCacheHandler(store),
-        use_web_redirect=True,
+        redirect_uri=redirect_uri,
         state=st.session_state.oauth_state,
     )
     verifier = st.session_state.get("pkce_verifier")
@@ -60,7 +68,8 @@ def consume_oauth_callback(client: SpotifyClient) -> None:
     if not code:
         return
     state = params.get("state")
-    redirect = f"{web_redirect_uri()}?code={code}"
+    redirect_uri = st.session_state.get("oauth_redirect_uri") or current_web_redirect()
+    redirect = f"{redirect_uri}?code={code}"
     if state:
         redirect += f"&state={state}"
     try:
@@ -81,10 +90,12 @@ def render_login(client: SpotifyClient) -> None:
     persist_handshake(client)
     st.warning("Sign in with Spotify to search tracks and edit your playlists.")
     st.markdown(f"[Sign in with Spotify]({url})")
+    st.caption(f"OAuth redirect URI: `{st.session_state.get('oauth_redirect_uri')}`")
     st.caption(
         "You will be asked to allow playlist access. After Spotify sends you back "
         "here, this page finishes login automatically. Development Mode apps work "
-        "for up to 5 allowlisted accounts."
+        "for up to 5 allowlisted accounts. The redirect URI above must be listed "
+        "exactly in the Spotify Dashboard."
     )
 
 

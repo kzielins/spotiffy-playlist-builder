@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Streamlit Sign in uses the live app origin (`st.context.url`) as Spotify `redirect_uri`, so Community Cloud is not stuck on `http://127.0.0.1:8501/`.
 - Playlists are created through `POST /v1/me/playlists` instead of `POST /v1/users/{id}/playlists`, which returned 403 Forbidden even with valid `playlist-modify-*` scopes.
 - Suggested playlist names are collapsed to a single line and clamped to Spotify's 100-character limit.
 - Promotional description lines (`Track list:`, `Stream/Download`, arrow and emoji decorations, contact handles) are filtered out before searching, instead of being rejected later by the score threshold.

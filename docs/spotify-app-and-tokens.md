@@ -16,12 +16,13 @@ You never paste a Client Secret. Search, playlist create, and playlist edit all 
 
 1. Sign in at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard). The owner account must have **Spotify Premium** while the app stays in Development Mode.
 2. Open the app (or **Create app** if you fork).
-3. Add **both** redirect URIs exactly:
+3. Add these redirect URIs **exactly** (trailing slashes matter):
 
    - `http://127.0.0.1:8888/callback` (CLI)
    - `http://127.0.0.1:8501/` (local Streamlit)
+   - `https://spotifyplaylist.streamlit.app/` (Streamlit Community Cloud)
 
-   Prefer `127.0.0.1` over `localhost`. They are not interchangeable for Spotify.
+   Prefer `127.0.0.1` over `localhost`. They are not interchangeable for Spotify. If Sign in shows `redirect_uri: Not matching configuration`, the URI on the login screen is missing from this list.
 4. Under **User Management**, add up to **5** Spotify account e-mails that may use the app. Development Mode will not serve anyone else until you obtain [Extended Quota Mode](https://developer.spotify.com/documentation/web-api/concepts/quota-modes).
 
 ## Optional local overrides
@@ -35,7 +36,7 @@ SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback
 SPOTIFY_WEB_REDIRECT_URI=http://127.0.0.1:8501/
 ```
 
-Do **not** put a Client Secret in `.env`. PKCE does not use it.
+Do **not** put a Client Secret in `.env`. PKCE does not use it. On Streamlit Cloud, leave `SPOTIFY_WEB_REDIRECT_URI` unset so the app uses `https://spotifyplaylist.streamlit.app/` from the browser.
 
 ## Scopes requested by this project
 

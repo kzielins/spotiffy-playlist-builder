@@ -8,7 +8,9 @@ Spotiffy uses **Authorization Code with PKCE** (`SpotifyPKCE`). There is no Clie
 2. Your browser opens the Spotify consent screen with scopes `playlist-modify-public playlist-modify-private`.
 3. After you accept, Spotify redirects:
    - CLI → `http://127.0.0.1:8888/callback`
-   - Streamlit → `http://127.0.0.1:8501/` (query string includes `?code=` and `state`)
+   - Local Streamlit → `http://127.0.0.1:8501/`
+   - Streamlit Cloud → the live app origin, for example `https://spotifyplaylist.streamlit.app/`
+   Query string includes `?code=` and `state`. The Sign-in page shows the exact redirect URI being sent.
 4. The app exchanges the code plus a PKCE verifier for an access token and a refresh token.
    - CLI stores them in `.cache-spotiffy` (gitignored).
    - Streamlit stores them only in **that browser session**, so two users on the same server cannot share a login.
@@ -40,7 +42,7 @@ playlist-modify-private playlist-modify-public
 
 ## Common errors
 
-- **Redirect URI mismatch** — every URI in the Dashboard must match `.env` / the defaults exactly, including `http://127.0.0.1:8888/callback` and `http://127.0.0.1:8501/`.
+- **Redirect URI mismatch / `Not matching configuration`** — Spotify compares the `redirect_uri` query parameter to the Dashboard list **exactly** (scheme, host, port, path, trailing slash). Local Streamlit uses `http://127.0.0.1:8501/`; [spotifyplaylist.streamlit.app](https://spotifyplaylist.streamlit.app) uses `https://spotifyplaylist.streamlit.app/`. Both must be listed. CLI stays `http://127.0.0.1:8888/callback`. Do not set `SPOTIFY_WEB_REDIRECT_URI` to localhost in Streamlit Cloud secrets.
 - **OAuth state mismatch** — start sign-in again from the same Streamlit session; do not mix two tabs from different logins.
 - **PKCE verifier missing** — Streamlit must generate the consent link and receive the redirect in the same browser session.
 - **Browser does not open (CLI)** — run the CLI in a real terminal so Spotipy can start the local callback server on port 8888.
