@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.pipeline import load_source, run_pipeline
+from src.spotify_client import SpotifyApiError, SpotifyClient, clear_cached_token
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
             "YouTube description or any pasted text, then create a playlist."
         )
     )
-    source = parser.add_mutually_exclusive_group(required=True)
+    source = parser.add_mutually_exclusive_group(required=False)
     source.add_argument("--url", help="YouTube video URL (description via yt-dlp)")
     source.add_argument("--text", help="Pasted description or mixed track list")
     source.add_argument("--file", help="Path to a UTF-8 .txt file")
@@ -48,6 +49,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print matches only; do not create a playlist",
     )
     parser.add_argument(
+        "--public",
+        action="store_true",
+        help="Create a public playlist (default: private)",
+    )
+    parser.add_argument(
+        "--check-auth",
+        action="store_true",
+        help="Show the signed-in Spotify account and granted scopes, then exit",
+    )
+    parser.add_argument(
+        "--relogin",
+        action="store_true",
+        help="Delete the cached token and re-run the OAuth consent flow",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -56,12 +72,46 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def print_auth_status() -> int:
+    """Print the account and scopes behind the cached token."""
+    try:
+        status = SpotifyClient().auth_status()
+    except SpotifyApiError as exc:
+        print(f"Auth check failed: {exc}")
+        print(exc.details)
+        return 1
+    except RuntimeError as exc:
+        print(f"Auth check failed: {exc}")
+        return 1
+    print(f"Spotify user:    {status['user_id']} ({status['display_name']})")
+    print(f"Account type:    {status['product']} / {status['country']}")
+    print(f"Redirect URI:    {status['redirect_uri']}")
+    print(f"Token cache:     {status['token_cache']} (present={status['cached_token']})")
+    print(f"Granted scopes:  {' '.join(status['granted_scopes']) or '-'}")
+    missing = status["missing_scopes"]
+    if missing:
+        print(f"MISSING scopes:  {' '.join(missing)}")
+        print("Run `python main.py --relogin --dry-run --text x` to re-consent.")
+    else:
+        print("All required playlist scopes are granted.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s %(name)s: %(message)s",
     )
+    if args.relogin:
+        removed = clear_cached_token()
+        print("Cached token removed." if removed else "No cached token found.")
+    if args.check_auth:
+        return print_auth_status()
+    if not (args.url or args.text or args.file or args.stdin):
+        parser.error("one of --url, --text, --file, --stdin is required")
+
     stdin_text = sys.stdin.read() if args.stdin else None
     try:
         source = load_source(
@@ -75,7 +125,11 @@ def main(argv: list[str] | None = None) -> int:
             name=args.name,
             min_score=args.min_score,
             dry_run=args.dry_run,
+            public=args.public,
         )
+    except SpotifyApiError as exc:
+        logging.error("%s\n%s", exc, exc.details)
+        return 1
     except RuntimeError as exc:
         logging.error("%s", exc)
         return 1

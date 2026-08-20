@@ -44,10 +44,14 @@ Thanks for watching
 Blinding Lights"
 python main.py --file tracks.txt --dry-run
 python main.py --stdin
+python main.py --check-auth
 ```
 
-`--name` is optional. `--dry-run` prints matches without creating a playlist.
-The first Spotify login opens a browser; see [docs/oauth-login.md](docs/oauth-login.md).
+`--name` is optional. `--dry-run` prints matches without creating a playlist, and
+`--public` makes the new playlist public instead of private. `--check-auth` shows
+the connected account and granted scopes, `--relogin` clears the cached token.
+The first Spotify login opens a browser; see [docs/oauth-login.md](docs/oauth-login.md)
+for the OAuth flow and 403 troubleshooting.
 
 ## Streamlit
 
@@ -57,6 +61,10 @@ streamlit run app.py
 
 Paste a YouTube URL **or** a description. If both are filled, the URL wins.
 Leave the playlist name empty to use a suggestion. Click **Create playlist**.
+
+On the first run the app shows a Spotify consent link and asks you to paste the
+redirect URL back, so it also works where the server cannot open a browser. The
+sidebar has **Check connection** and **Re-authenticate**.
 
 ## License
 

@@ -21,11 +21,23 @@ MENTION_RE = re.compile(r"@[\w.]+")
 HASHTAG_RE = re.compile(r"#\w+")
 ARTIST_TITLE_RE = re.compile(r"\s+[-–—]\s+")
 NOISE_RE = re.compile(
-    r"^(subscribe|follow\s+me|follow\s+us|copyright|tracklist:?|thanks\s+for\s+"
-    r"watching|like\s+and\s+subscribe|turn\s+on\s+notifications|link\s+in\s+bio|"
-    r"socials?:?|instagram|facebook|twitter|tiktok|discord|merch|stream\s+on)\b",
+    r"^(subscribe|follow|copyright|track\s*list|playlist|"
+    r"thank(?:s|\s+you)?\s+(?:for|to)\b|like\s+and\s+subscribe|"
+    r"turn\s+on\s+notifications|link\s+in\s+bio|do(?:\s+not|n't)\s+forget|"
+    r"socials?|instagram|facebook|twitter|tiktok|discord|merch|submit|"
+    r"stream(?:ing)?\s*(?:/|and|&)?\s*download|download|out\s+now|buy\s+|"
+    r"support\s+|spotify|apple\s*music|soundcloud|bandcamp|beatport|patreon|"
+    r"youtube|booking|contact|demos?\b|all\s+rights\s+reserved|"
+    r"(?:full|free)\s+download)\b",
     re.IGNORECASE,
 )
+EMOJI_RE = re.compile(
+    "[\U0001f000-\U0001faff\u2190-\u21ff\u2300-\u27bf\u2b00-\u2bff\ufe0f\u200d]"
+)
+HANDLE_RE = re.compile(r"^\S+\.[a-z]{2,}$", re.IGNORECASE)
+DECORATION_CHARS = "➤►▶▷»«→←⇒•·★☆✔✅❤️🔥🎵🎶💥⚡️ⓒ©|:;=~_*+#/\\ \t"
+NAME_MAX_LEN = 100
+LABEL_RE = re.compile(r"^[^:]{0,40}:$")
 
 
 class LineQuery(BaseModel):
@@ -52,7 +64,8 @@ def clean_line(line: str) -> str:
     text = URL_RE.sub("", text)
     text = MENTION_RE.sub("", text)
     text = HASHTAG_RE.sub("", text)
-    text = re.sub(r"\s+", " ", text).strip(" -–—.|")
+    text = EMOJI_RE.sub(" ", text)
+    text = re.sub(r"\s+", " ", text).strip(DECORATION_CHARS + "-–—.")
     return text.strip()
 
 
@@ -65,6 +78,12 @@ def is_boilerplate(line: str) -> bool:
     if HASHTAG_RE.sub("", line).strip() == "":
         return True
     if NOISE_RE.match(line):
+        return True
+    if LABEL_RE.match(line.strip()):
+        return True
+    if HANDLE_RE.match(line.strip()):
+        return True
+    if not re.search(r"[^\W_]{2,}", line):
         return True
     if len(line) < 2:
         return True
@@ -156,16 +175,16 @@ def suggest_playlist_name(
     video_title: str | None,
     queries: Iterable[LineQuery],
 ) -> str:
-    """Pick a playlist name when the user did not supply one."""
+    """Pick a playlist name when the user did not supply one (max 100 chars)."""
     if video_title:
         name = re.split(r"\s*\|\s*YouTube\s*$", video_title, flags=re.IGNORECASE)[0]
-        name = name.strip()
+        name = re.sub(r"\s+", " ", name).strip()
         if name:
-            return name[:200]
+            return name[:NAME_MAX_LEN].strip()
     query_list = list(queries)
     if query_list:
-        first = query_list[0].raw[:80].strip()
+        first = re.sub(r"\s+", " ", query_list[0].raw).strip()
         if first:
-            return first
+            return first[:80].strip()
     today = date.today().isoformat()
     return f"Spotiffy mix {today}"

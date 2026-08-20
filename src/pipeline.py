@@ -13,7 +13,7 @@ from src.parser import (
     read_text_file,
     suggest_playlist_name,
 )
-from src.spotify_client import PlaylistReport, SpotifyClient
+from src.spotify_client import PlaylistReport, SpotifyClient, clamp_playlist_name
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +45,14 @@ def run_pipeline(
     name: str | None = None,
     min_score: float = 0.45,
     dry_run: bool = False,
+    public: bool = False,
     client: SpotifyClient | None = None,
 ) -> tuple[list[LineQuery], PlaylistReport]:
     """Parse lines, match Spotify tracks, optionally create a playlist."""
     queries = extract_queries(source.text)
-    playlist_name = (name or "").strip() or suggest_playlist_name(
-        video_title=source.video_title,
-        queries=queries,
+    playlist_name = clamp_playlist_name(
+        (name or "").strip()
+        or suggest_playlist_name(video_title=source.video_title, queries=queries)
     )
     logger.info("Playlist name: %s", playlist_name)
     sp = client or SpotifyClient()
@@ -70,6 +71,7 @@ def run_pipeline(
     playlist_id, url = sp.create_playlist(
         playlist_name,
         [item.uri for item in matched],
+        public=public,
     )
     report.playlist_id = playlist_id
     report.playlist_url = url

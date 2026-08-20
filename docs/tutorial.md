@@ -27,7 +27,13 @@ Run a dry search. Spotipy opens a browser for consent:
 python main.py --text "The Weeknd - Blinding Lights" --dry-run
 ```
 
-See [oauth-login.md](oauth-login.md) if the redirect URI does not match.
+Confirm which account was connected and what it may do:
+
+```bash
+python main.py --check-auth
+```
+
+See [oauth-login.md](oauth-login.md) if the redirect URI does not match, if scopes are missing, or if a playlist write returns 403.
 
 ## 4. YouTube URL
 
@@ -60,4 +66,6 @@ Weak Spotify matches are skipped. Tune with `--min-score` (default `0.45`).
 streamlit run app.py
 ```
 
-Use the URL field **or** the large text box, optionally set a playlist name, then **Create playlist**.
+Use the URL field **or** the large text box, optionally set a playlist name, then **Create playlist**. Playlists are private unless you tick **Public playlist** (`--public` on the CLI).
+
+The Streamlit process never opens a browser by itself. On the first run it shows a Spotify consent link: approve access, copy the full redirect URL containing `?code=`, paste it into **Redirect URL**, and press *Finish sign-in*. The sidebar keeps **Check connection** and **Re-authenticate** for troubleshooting.
