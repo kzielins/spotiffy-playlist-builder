@@ -55,6 +55,7 @@ def run_pipeline(
     mode: PlaylistMode = "create",
     playlist_id: str | None = None,
     client: SpotifyClient | None = None,
+    on_progress=None,
 ) -> tuple[list[LineQuery], PlaylistReport]:
     """Parse lines, match Spotify tracks, then create or edit a playlist."""
     queries: list[LineQuery] = []
@@ -66,7 +67,9 @@ def run_pipeline(
         if source is None:
             raise RuntimeError("Provide a YouTube URL, description, or track list")
         queries = extract_queries(source.text)
-        matched, skipped = sp.match_lines(queries, min_score=min_score)
+        matched, skipped = sp.match_lines(
+            queries, min_score=min_score, on_progress=on_progress
+        )
 
     playlist_name = ""
     if mode == "create":

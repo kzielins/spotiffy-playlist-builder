@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import pytest
 
+from spotipy import SpotifyException
+
 from src.auth import DictCacheHandler
 from src.parser import LineQuery
 from src.pipeline import run_pipeline
 from src.parser import SourceText
-from src.spotify_client import SpotifyClient
+from src.spotify_client import SpotifyApiError, SpotifyClient, format_retry_wait
 
 
 class FakeSpotify:
@@ -103,7 +105,7 @@ def _client() -> tuple[SpotifyClient, FakeSpotify]:
             "access_token": "fake",
             "refresh_token": "fake",
             "expires_at": 9_999_999_999,
-            "scope": "playlist-modify-public playlist-modify-private",
+            "scope": "playlist-modify-public playlist-modify-private playlist-read-private",
             "expires_in": 3600,
         }
     }
@@ -111,6 +113,7 @@ def _client() -> tuple[SpotifyClient, FakeSpotify]:
         open_browser=False,
         cache_handler=DictCacheHandler(store),
         use_web_redirect=True,
+        search_pace_s=0,
     )
     fake = FakeSpotify()
     client._sp = fake
@@ -166,3 +169,97 @@ def test_match_lines_uses_search() -> None:
     )
     assert matched and not skipped
     assert matched[0].uri == "spotify:track:hit"
+
+
+def test_format_retry_wait() -> None:
+    assert format_retry_wait(2) == "2 seconds"
+    assert format_retry_wait(78689) == "about 22 hours"
+
+
+def test_early_stop_skips_second_search() -> None:
+    client, fake = _client()
+    calls: list[str] = []
+
+    def search(q, type="track", limit=5):
+        calls.append(q)
+        return {
+            "tracks": {
+                "items": [
+                    {
+                        "uri": "spotify:track:hit",
+                        "name": "Title",
+                        "popularity": 100,
+                        "artists": [{"name": "Artist"}],
+                    }
+                ]
+            }
+        }
+
+    fake.search = search
+    client.best_match(
+        LineQuery(
+            raw="x",
+            query="Artist Title",
+            kind="artist_title",
+            artist="Artist",
+            title="Title",
+        ),
+        min_score=0.1,
+    )
+    assert len(calls) == 1
+
+
+def test_short_429_retries_once(monkeypatch) -> None:
+    client, fake = _client()
+    slept: list[float] = []
+    monkeypatch.setattr("src.spotify_client.time.sleep", slept.append)
+    n = {"c": 0}
+
+    def search(q, type="track", limit=5):
+        n["c"] += 1
+        if n["c"] == 1:
+            raise SpotifyException(429, -1, "Too many requests", headers={"Retry-After": "2"})
+        return {
+            "tracks": {
+                "items": [
+                    {
+                        "uri": "spotify:track:hit",
+                        "name": "Blinding Lights",
+                        "popularity": 80,
+                        "artists": [{"name": "The Weeknd"}],
+                    }
+                ]
+            }
+        }
+
+    fake.search = search
+    matched, _ = client.match_lines(
+        [LineQuery(raw="x", query="Blinding Lights", kind="free_text")],
+        min_score=0.1,
+    )
+    assert n["c"] == 2
+    assert slept == [2]
+    assert matched
+
+
+def test_long_429_aborts_without_sleeping(monkeypatch) -> None:
+    client, fake = _client()
+    slept: list[float] = []
+    monkeypatch.setattr("src.spotify_client.time.sleep", slept.append)
+
+    def search(q, type="track", limit=5):
+        raise SpotifyException(
+            429,
+            -1,
+            "Too many requests",
+            headers={"Retry-After": "78689"},
+            reason="QUOTA_EXCEEDED",
+        )
+
+    fake.search = search
+    with pytest.raises(SpotifyApiError, match="about 22 hours"):
+        client.match_lines(
+            [LineQuery(raw="x", query="Blinding Lights", kind="free_text")],
+            min_score=0.1,
+        )
+    assert slept == []

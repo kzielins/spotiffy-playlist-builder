@@ -5,11 +5,11 @@ Spotiffy uses **Authorization Code with PKCE** (`SpotifyPKCE`). There is no Clie
 ## What happens
 
 1. The app uses the project's public Client ID (or `SPOTIFY_CLIENT_ID` if you override it).
-2. Your browser opens the Spotify consent screen with scopes `playlist-modify-public playlist-modify-private`.
+2. Your browser opens the Spotify consent screen with scopes `playlist-modify-public playlist-modify-private playlist-read-private`.
 3. After you accept, Spotify redirects:
    - CLI → `http://127.0.0.1:8888/callback`
    - Local Streamlit → `http://127.0.0.1:8501/`
-   - Streamlit Cloud → the live app origin, for example `https://spotifyplaylist.streamlit.app/`
+   - Streamlit Cloud → [https://spotifyplaylist.streamlit.app/](https://spotifyplaylist.streamlit.app/) (see [streamlit-cloud.md](streamlit-cloud.md))
    Query string includes `?code=` and `state`. The Sign-in page shows the exact redirect URI being sent.
 4. The app exchanges the code plus a PKCE verifier for an access token and a refresh token.
    - CLI stores them in `.cache-spotiffy` (gitignored).
@@ -39,15 +39,18 @@ python main.py --list-playlists
 `--check-auth` prints the signed-in user, granted scopes, redirect URI, and cache path — never the token. Expected scopes:
 
 ```
-playlist-modify-private playlist-modify-public
+playlist-modify-private playlist-modify-public playlist-read-private
 ```
+
+If `playlist-read-private` is missing, **Log out / `--relogin` and sign in again** so Spotify can grant the new scope. Listing playlists (`GET /v1/me/playlists`) fails with **403 Insufficient client scope** without it.
 
 ## Common errors
 
 - **Redirect URI mismatch / `Not matching configuration`** — Spotify compares the `redirect_uri` query parameter to the Dashboard list **exactly** (scheme, host, port, path, trailing slash). Local Streamlit uses `http://127.0.0.1:8501/`; [spotifyplaylist.streamlit.app](https://spotifyplaylist.streamlit.app) uses `https://spotifyplaylist.streamlit.app/`. Both must be listed. CLI stays `http://127.0.0.1:8888/callback`. Do not set `SPOTIFY_WEB_REDIRECT_URI` to localhost in Streamlit Cloud secrets.
 - **Sign-in link expired or was already used** — Streamlit cannot keep OAuth `state` across Spotify's redirect in `session_state`. The handshake lives in process memory for a few minutes and is consumed once. Click **Sign in with Spotify** again; do not reuse an old tab or bookmark.
 - **PKCE verifier missing** — start sign-in from the app so a fresh consent URL is generated; do not paste an old authorize URL.
-- **Browser does not open (CLI)** — run the CLI in a real terminal so Spotipy can start the local callback server on port 8888.
+- **403 Insufficient client scope** on playlist list — the cached token predates `playlist-read-private`. Sign in again.
+- **429 / quota exhausted** — Development Mode daily quota or a short rate limit. See [spotify-rate-limits.md](spotify-rate-limits.md). Do not keep clicking Apply.
 
 ## 403 Forbidden
 

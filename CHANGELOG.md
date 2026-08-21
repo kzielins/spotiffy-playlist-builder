@@ -11,7 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - OAuth Authorization Code with PKCE so end users sign in with Spotify in the browser and never need a Client Secret or a hand-made token.
 - Streamlit stores tokens only in the current browser session; CLI still uses `.cache-spotiffy`.
-- Playlist editor: list owned playlists, append, replace, remove matched tracks, and update name/description/visibility (`--mode`, `--playlist-id`, `--list-playlists`, Streamlit **Edit existing playlist**).
+- Streamlit playlist list requires `playlist-read-private`; Sign in again if the token is older than that scope.
+- Search uses at most two Spotify queries per line, paces requests, and shows progress. Long `Retry-After` (quota) stops the run instead of sleeping for hours.
+- Docs and OAuth tests for the live Cloud app at [https://spotifyplaylist.streamlit.app/](https://spotifyplaylist.streamlit.app/).
 
 ### Changed
 

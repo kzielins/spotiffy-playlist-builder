@@ -4,7 +4,7 @@ Turn a **YouTube video description** or any **pasted text** into a **Spotify pla
 
 Each line is cleaned (timestamps, numbering, URLs) and searched on Spotify. The best matching track is kept when the score is high enough. Lines that look like “subscribe” noise are skipped. The playlist name is optional: if you omit it, the tool suggests one from the video title or the first useful line.
 
-Users sign in with Spotify in the browser. **No Client Secret and no hand-made token** are required.
+Live app: **[https://spotifyplaylist.streamlit.app/](https://spotifyplaylist.streamlit.app/)**. Users sign in with Spotify in the browser. **No Client Secret and no hand-made token** are required.
 
 ## Features
 
@@ -21,6 +21,8 @@ Users sign in with Spotify in the browser. **No Client Secret and no hand-made t
 - [Tutorial](docs/tutorial.md)
 - [Create a Spotify app and tokens](docs/spotify-app-and-tokens.md)
 - [OAuth login](docs/oauth-login.md)
+- [Streamlit Cloud deploy](docs/streamlit-cloud.md)
+- [Spotify rate limits and quota](docs/spotify-rate-limits.md)
 - [GitHub PAT (publishing only)](docs/github.md)
 - [Authors](AUTHORS.md) · [Changelog](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
@@ -57,6 +59,11 @@ python main.py --mode append --playlist-id PLAYLIST_ID --text "Daft Punk - One M
 [docs/oauth-login.md](docs/oauth-login.md).
 
 ## Streamlit
+
+**Public site:** [https://spotifyplaylist.streamlit.app/](https://spotifyplaylist.streamlit.app/)
+(deploys `app.py` from `main`; see [docs/streamlit-cloud.md](docs/streamlit-cloud.md)).
+
+Locally:
 
 ```bash
 streamlit run app.py

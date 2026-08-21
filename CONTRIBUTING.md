@@ -17,6 +17,10 @@ Fill in optional Spotify Client ID / redirect overrides only if you fork the app
 pytest
 ```
 
+OAuth helpers cover both local Streamlit (`http://127.0.0.1:8501/`) and the Cloud app (`https://spotifyplaylist.streamlit.app/`).
+
+Merges to `main` are picked up by [Streamlit Community Cloud](https://spotifyplaylist.streamlit.app/). See [docs/streamlit-cloud.md](docs/streamlit-cloud.md). Do not put a localhost `SPOTIFY_WEB_REDIRECT_URI` in Cloud secrets.
+
 ## Changes
 
 - Keep user-facing text in English.
