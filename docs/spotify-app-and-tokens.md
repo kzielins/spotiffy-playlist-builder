@@ -6,7 +6,7 @@ The **project owner** registers one Spotify app. Its public Client ID is built i
 
 ## End users
 
-1. Open the Streamlit app or run the CLI.
+1. Open the [live Streamlit app](https://spotifyplaylist.streamlit.app/) or run the CLI.
 2. Approve **playlist-modify-public**, **playlist-modify-private**, and **playlist-read-private** on the Spotify consent page.
 3. After redirect, the app stores a user access token (CLI: `.cache-spotiffy`; Streamlit: that browser session only).
 
@@ -36,7 +36,7 @@ SPOTIFY_REDIRECT_URI=http://127.0.0.1:8888/callback
 SPOTIFY_WEB_REDIRECT_URI=http://127.0.0.1:8501/
 ```
 
-Do **not** put a Client Secret in `.env`. PKCE does not use it. On Streamlit Cloud, leave `SPOTIFY_WEB_REDIRECT_URI` unset so the app uses `https://spotifyplaylist.streamlit.app/` from the browser.
+Do **not** put a Client Secret in `.env`. PKCE does not use it. On Streamlit Cloud ([spotifyplaylist.streamlit.app](https://spotifyplaylist.streamlit.app/)), leave `SPOTIFY_WEB_REDIRECT_URI` unset so the app uses that origin from the browser. Setup: [streamlit-cloud.md](streamlit-cloud.md).
 
 ## Scopes requested by this project
 

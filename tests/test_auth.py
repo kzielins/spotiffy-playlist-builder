@@ -1,9 +1,11 @@
 """Unit tests for PKCE helpers and isolated token caches."""
 
 from src.auth import (
+    CLOUD_APP_URL,
     DictCacheHandler,
     PendingAuth,
     PendingAuthStore,
+    WEB_REDIRECT_URI,
     new_oauth_state,
     normalize_web_redirect_uri,
     parse_redirect_params,
@@ -31,6 +33,18 @@ def test_parse_redirect_params_from_url() -> None:
     assert params["state"] == "xyz"
 
 
+def test_parse_redirect_params_from_cloud_callback() -> None:
+    params = parse_redirect_params(
+        f"{CLOUD_APP_URL}?code=cloudCode&state=cloudState"
+    )
+    assert params["code"] == "cloudCode"
+    assert params["state"] == "cloudState"
+    assert CLOUD_APP_URL == "https://spotifyplaylist.streamlit.app/"
+    assert normalize_web_redirect_uri(
+        f"{CLOUD_APP_URL.rstrip('/')}/?code=cloudCode&state=cloudState"
+    ) == CLOUD_APP_URL
+
+
 def test_parse_redirect_params_error() -> None:
     params = parse_redirect_params("http://127.0.0.1:8501/?error=access_denied")
     assert params["error"] == "access_denied"
@@ -41,40 +55,38 @@ def test_oauth_state_is_unique() -> None:
 
 
 def test_normalize_cloud_and_local_urls() -> None:
-    assert (
-        normalize_web_redirect_uri("https://spotifyplaylist.streamlit.app")
-        == "https://spotifyplaylist.streamlit.app/"
-    )
+    assert normalize_web_redirect_uri(CLOUD_APP_URL.rstrip("/")) == CLOUD_APP_URL
     assert (
         normalize_web_redirect_uri("http://127.0.0.1:8501/?foo=1")
-        == "http://127.0.0.1:8501/"
+        == WEB_REDIRECT_URI
     )
 
 
 def test_resolve_prefers_env(monkeypatch) -> None:
-    monkeypatch.setenv(
-        "SPOTIFY_WEB_REDIRECT_URI", "https://spotifyplaylist.streamlit.app"
-    )
-    assert (
-        resolve_web_redirect_uri("http://127.0.0.1:8501/")
-        == "https://spotifyplaylist.streamlit.app/"
-    )
+    monkeypatch.setenv("SPOTIFY_WEB_REDIRECT_URI", CLOUD_APP_URL.rstrip("/"))
+    assert resolve_web_redirect_uri(WEB_REDIRECT_URI) == CLOUD_APP_URL
 
 
 def test_resolve_ignores_loopback_env_on_cloud(monkeypatch) -> None:
-    monkeypatch.setenv("SPOTIFY_WEB_REDIRECT_URI", "http://127.0.0.1:8501/")
-    assert (
-        resolve_web_redirect_uri("https://spotifyplaylist.streamlit.app")
-        == "https://spotifyplaylist.streamlit.app/"
-    )
+    monkeypatch.setenv("SPOTIFY_WEB_REDIRECT_URI", WEB_REDIRECT_URI)
+    assert resolve_web_redirect_uri(CLOUD_APP_URL.rstrip("/")) == CLOUD_APP_URL
 
 
-def _pending(state: str = "s1", created_at: float | None = None) -> PendingAuth:
+def test_resolve_cloud_callback_url_drops_oauth_query() -> None:
+    live = f"{CLOUD_APP_URL}?code=abc&state=xyz"
+    assert resolve_web_redirect_uri(live) == CLOUD_APP_URL
+
+
+def _pending(
+    state: str = "s1",
+    created_at: float | None = None,
+    redirect_uri: str = WEB_REDIRECT_URI,
+) -> PendingAuth:
     kwargs: dict = {
         "state": state,
         "verifier": "verifier",
         "challenge": "challenge",
-        "redirect_uri": "http://127.0.0.1:8501/",
+        "redirect_uri": redirect_uri,
     }
     if created_at is not None:
         kwargs["created_at"] = created_at
@@ -87,7 +99,7 @@ def test_pending_store_register_and_consume() -> None:
     got = store.consume("s1")
     assert got is not None
     assert got.verifier == "verifier"
-    assert got.redirect_uri == "http://127.0.0.1:8501/"
+    assert got.redirect_uri == WEB_REDIRECT_URI
 
 
 def test_pending_store_consume_is_single_use() -> None:
@@ -103,6 +115,14 @@ def test_pending_store_unknown_state() -> None:
     assert store.consume("missing") is None
     assert store.consume("") is None
     assert store.consume("s1") is not None
+
+
+def test_pending_store_cloud_redirect_uri() -> None:
+    store = PendingAuthStore({})
+    store.register(_pending("cloud", redirect_uri=CLOUD_APP_URL))
+    got = store.consume("cloud")
+    assert got is not None
+    assert got.redirect_uri == CLOUD_APP_URL
 
 
 def test_pending_store_expired_ttl() -> None:

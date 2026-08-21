@@ -18,7 +18,7 @@ Spotify does not publish exact numeric limits. They differ for Development Mode 
 - Spotipy **retries are disabled**. A 22-hour `Retry-After` is never slept through.
 - Listing playlists is cached in the Streamlit session; use **Refresh playlist list** only when you need a new fetch.
 
-You can still exhaust Development Mode quota by running many mixes, many browser tabs, or CLI and Streamlit at the same time.
+You can still exhaust Development Mode quota by running many mixes, many browser tabs, or the CLI and [the Cloud app](https://spotifyplaylist.streamlit.app/) at the same time. All of them share one Client ID.
 
 ## After a quota error
 

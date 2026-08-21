@@ -21,6 +21,8 @@ SCOPES = "playlist-modify-public playlist-modify-private playlist-read-private"
 CACHE_PATH = ".cache-spotiffy"
 CLI_REDIRECT_URI = "http://127.0.0.1:8888/callback"
 WEB_REDIRECT_URI = "http://127.0.0.1:8501/"
+# Live Streamlit Community Cloud app. Must match the Spotify Dashboard redirect URI.
+CLOUD_APP_URL = "https://spotifyplaylist.streamlit.app/"
 # Public Client ID of this project. Override with SPOTIFY_CLIENT_ID.
 DEFAULT_CLIENT_ID = "177a447eabb2440988d764fa9f20ad66"
 

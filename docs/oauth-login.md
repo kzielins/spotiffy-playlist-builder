@@ -9,7 +9,7 @@ Spotiffy uses **Authorization Code with PKCE** (`SpotifyPKCE`). There is no Clie
 3. After you accept, Spotify redirects:
    - CLI → `http://127.0.0.1:8888/callback`
    - Local Streamlit → `http://127.0.0.1:8501/`
-   - Streamlit Cloud → the live app origin, for example `https://spotifyplaylist.streamlit.app/`
+   - Streamlit Cloud → [https://spotifyplaylist.streamlit.app/](https://spotifyplaylist.streamlit.app/) (see [streamlit-cloud.md](streamlit-cloud.md))
    Query string includes `?code=` and `state`. The Sign-in page shows the exact redirect URI being sent.
 4. The app exchanges the code plus a PKCE verifier for an access token and a refresh token.
    - CLI stores them in `.cache-spotiffy` (gitignored).

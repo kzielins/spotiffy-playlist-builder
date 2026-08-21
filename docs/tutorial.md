@@ -61,8 +61,12 @@ You can only change playlists you own.
 
 ## 6. Streamlit UI
 
+**Live:** [https://spotifyplaylist.streamlit.app/](https://spotifyplaylist.streamlit.app/) — no local install. Your Spotify e-mail must be on the app allowlist. Deploy details: [streamlit-cloud.md](streamlit-cloud.md).
+
+Locally:
+
 ```bash
 streamlit run app.py
 ```
 
-Sign in with Spotify (automatic redirect back to this page). On [Streamlit Cloud](https://spotifyplaylist.streamlit.app) the consent URL uses `https://spotifyplaylist.streamlit.app/` — that URI must be in the Spotify Dashboard. Use **Create new playlist** or pick one of yours and append, replace, remove, or update details.
+Sign in with Spotify (automatic redirect back to this page). On Cloud the consent URL uses `https://spotifyplaylist.streamlit.app/` — that URI must be in the Spotify Dashboard. Use **Create new playlist** or pick one of yours and append, replace, remove, or update details.
